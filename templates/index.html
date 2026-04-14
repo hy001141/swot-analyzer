@@ -788,7 +788,7 @@
       const container = document.getElementById("questionsContent");
       container.innerHTML = "";
       lines.forEach((line, i) => {
-        const q = line.replace(/^\d+\.\s*/, '').trim();
+        const q = line.replace(/^\d+\.\s*/, '').replace(/\*\*/g, '').trim();
         const el = document.createElement("div");
         el.className = "question-item";
         el.innerHTML = `<div class="question-num">${i+1}</div><div class="question-text">${q}</div>`;
@@ -900,13 +900,20 @@
         if (data.done) {
           setStatus(null);
           document.getElementById("analyzeBtn").disabled = false;
-          if (accumulatedText.length > 100) {
+          // Only show results if we got actual SWOT content
+          const hasSwot = accumulatedText.includes("## Strengths") || accumulatedText.includes("## Weaknesses");
+          if (hasSwot) {
             renderSections(accumulatedText);
             document.getElementById("chatSection").classList.remove("hidden");
-          } else if (data.error) {
-            showError(data.error);
           } else {
-            showError("Analysis failed — not enough financial data available for this ticker.");
+            // Hide everything if no real SWOT content
+            document.getElementById("swotGrid").style.display = "none";
+            document.getElementById("companyCard").classList.remove("visible");
+            document.getElementById("strategicSection").style.display = "none";
+            document.getElementById("towsSection").style.display = "none";
+            document.getElementById("recoSection").style.display = "none";
+            document.getElementById("questionsSection").style.display = "none";
+            showError(data.error || "Analysis failed — not enough financial data available for this ticker.");
           }
           return;
         }
