@@ -287,13 +287,14 @@ def run_chat_worker(job_id: str, session_id: str, question: str):
     job = jobs[job_id]
     api_key = os.environ.get("ANTHROPIC_API_KEY")
 
-    history = conversations.get(session_id, [])
-    if not history:
+    base_history = conversations.get(session_id, [])
+    if not base_history:
         job["error"] = "No analysis found. Run an analysis first."
         job["done"] = True
         return
 
-    history.append({"role": "user", "content": question})
+    # Build messages for this request WITHOUT mutating the stored conversation
+    messages = list(base_history) + [{"role": "user", "content": question}]
 
     try:
         client = anthropic.Anthropic(api_key=api_key)
@@ -314,13 +315,14 @@ Rules:
             model="claude-sonnet-4-20250514",
             max_tokens=800,
             system=CHAT_PROMPT,
-            messages=history
+            messages=messages
         ) as stream:
             for chunk in stream.text_stream:
                 job["text"] += chunk
 
-        history.append({"role": "assistant", "content": job["text"]})
-        conversations[session_id] = history
+        # Only update conversation AFTER success
+        messages.append({"role": "assistant", "content": job["text"]})
+        conversations[session_id] = messages
         job["done"] = True
 
     except Exception as e:
