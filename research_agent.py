@@ -33,6 +33,64 @@ MAX_BRAVE_QUERIES = 8
 
 # ── Data Sources (all independent, all have try/except) ──────────────────
 
+def _build_yahoo_summary(stock, info: dict) -> str:
+    """Build a financial summary string from yfinance data."""
+    lines = []
+    lines.append(f"COMPANY: {info.get('longName', 'N/A')} ({info.get('symbol', 'N/A')})")
+    lines.append(f"Sector: {info.get('sector', 'N/A')} | Industry: {info.get('industry', 'N/A')}")
+    lines.append(f"Country: {info.get('country', 'N/A')} | Employees: {info.get('fullTimeEmployees', 'N/A')}")
+
+    if info.get("longBusinessSummary"):
+        lines.append(f"\nBUSINESS SUMMARY:\n{info['longBusinessSummary']}")
+
+    lines.append("\nKEY FINANCIAL METRICS:")
+    metrics = [
+        ("Market Cap", "marketCap"), ("Enterprise Value", "enterpriseValue"),
+        ("Revenue (TTM)", "totalRevenue"), ("Net Income", "netIncomeToCommon"),
+        ("EBITDA", "ebitda"), ("Gross Margin", "grossMargins"),
+        ("Operating Margin", "operatingMargins"), ("Profit Margin", "profitMargins"),
+        ("ROE", "returnOnEquity"), ("ROA", "returnOnAssets"),
+        ("Revenue Growth", "revenueGrowth"), ("Earnings Growth", "earningsGrowth"),
+        ("Total Cash", "totalCash"), ("Total Debt", "totalDebt"),
+        ("Debt/Equity", "debtToEquity"), ("Current Ratio", "currentRatio"),
+        ("Free Cash Flow", "freeCashflow"), ("P/E (Trailing)", "trailingPE"),
+        ("P/E (Forward)", "forwardPE"), ("Beta", "beta"),
+        ("Dividend Yield", "dividendYield"), ("EV/EBITDA", "enterpriseToEbitda"),
+    ]
+    for label, key in metrics:
+        val = info.get(key)
+        if val is not None:
+            if isinstance(val, (int, float)) and abs(val) > 1_000_000:
+                lines.append(f"  {label}: ${val:,.0f}")
+            else:
+                lines.append(f"  {label}: {val}")
+
+    try:
+        hist = stock.history(period="1y")
+        if hist is not None and not hist.empty:
+            lines.append("\nPRICE HISTORY (1Y):")
+            lines.append(f"  Current: ${hist['Close'].iloc[-1]:.2f}")
+            lines.append(f"  52w High: ${hist['Close'].max():.2f}")
+            lines.append(f"  52w Low: ${hist['Close'].min():.2f}")
+            lines.append(f"  Avg Volume: {int(hist['Volume'].mean()):,}")
+    except Exception:
+        pass
+
+    try:
+        news = stock.news
+        if news:
+            lines.append("\nRECENT NEWS:")
+            for item in news[:10]:
+                if isinstance(item, dict):
+                    title = item.get("title", item.get("content", {}).get("title", ""))
+                    if title:
+                        lines.append(f"  - {title}")
+    except Exception:
+        pass
+
+    return "\n".join(lines)
+
+
 def fetch_insider_transactions(ticker: str) -> str:
     """Get insider buy/sell activity from yfinance."""
     try:
@@ -537,15 +595,22 @@ def run_full_research(ticker: str, status_callback: Callable = None) -> dict:
                       info.get("currentPrice") or info.get("regularMarketPrice")),
         }
 
-        # Build financial summary
-        from app import fetch_company_data, build_data_summary
-        data = fetch_company_data(ticker)
-        results["yahoo_finance"] = build_data_summary(data)
+        # Build financial summary using yfinance data we already have
+        results["yahoo_finance"] = _build_yahoo_summary(stock, info)
 
         # Get price history for meta
-        ph = data.get("price_history_summary", {})
-        pc = ph.get("price_change_1y_pct")
-        results["meta"]["priceChange"] = float(pc) if pc is not None else None
+        try:
+            hist = stock.history(period="1y")
+            if hist is not None and not hist.empty:
+                price_chg = round(
+                    (hist["Close"].iloc[-1] - hist["Close"].iloc[0])
+                    / hist["Close"].iloc[0] * 100, 2
+                )
+                results["meta"]["priceChange"] = float(price_chg)
+                if not results["meta"].get("price"):
+                    results["meta"]["price"] = float(hist["Close"].iloc[-1])
+        except Exception:
+            pass
 
         results["sources_succeeded"].append("Yahoo Finance")
     except Exception as e:

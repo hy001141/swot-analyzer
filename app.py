@@ -18,6 +18,8 @@ if sys.platform == "win32":
 from flask import Flask, render_template, request, jsonify
 import yfinance as yf
 import anthropic
+from sec_fetcher import fetch_sec_data, build_sec_summary
+from research_agent import run_full_research, build_full_context
 
 app = Flask(__name__)
 
@@ -159,62 +161,49 @@ def build_data_summary(data: dict) -> str:
     return "\n".join(lines)
 
 
-SWOT_SYSTEM_PROMPT = """You are a senior long/short equity analyst at a fundamental hedge fund.
-Produce a SWOT analysis that a portfolio manager could use to size a position. Think in terms of earnings durability, multiple sensitivity, variant perception, and catalyst/risk structure.
+SWOT_SYSTEM_PROMPT = """You are a senior long/short equity analyst at a fundamental hedge fund. You have been given financial data AND actual SEC filing excerpts (10-K MD&A, Risk Factors, Business Overview, and earnings releases). Use ALL of this source material.
 
-HOW TO THINK ABOUT EACH QUADRANT:
+Your job: produce a SWOT analysis a portfolio manager would use to size a position. Think through: earnings durability, multiple sensitivity, variant perception, and catalyst/risk structure.
 
-## Strengths = What protects earnings durability + supports the multiple
-Focus on: competitive moats (network effects, switching costs, scale advantages, IP), revenue quality (recurring vs one-time, customer stickiness, pricing power), margin sustainability, balance sheet strength, management quality and capital allocation track record. Back up with specific financial metrics.
+FRAMEWORK FOR EACH QUADRANT:
 
-## Weaknesses = What threatens earnings + could compress the multiple
-Focus on: customer/revenue concentration, margin pressure vectors, competitive vulnerabilities, regulatory exposure, capital allocation mistakes, management concerns, balance sheet risks. Be specific about what could actually break the thesis.
+## Strengths = What protects earnings durability + supports the current multiple
+Mine the 10-K and MD&A for: competitive moats management actually describes (not generic "brand strength"), revenue quality and mix (recurring vs transactional, segment breakdown), margin drivers management highlights, balance sheet positioning, R&D advantages they cite. Cross-reference with the financial data. Quote or reference specific 10-K disclosures.
 
-## Opportunities = Catalysts + variant perception (where consensus is wrong in the company's favor)
-Focus on: specific upcoming catalysts (product launches, earnings inflections, regulatory clearances), underappreciated business lines, margin expansion drivers, M&A optionality, secular tailwinds consensus underweights. Think about what the market is NOT pricing in.
+## Weaknesses = What threatens earnings + what could compress the multiple
+Mine the Risk Factors section for: the risks management is ACTUALLY worried about (they have to disclose these), revenue/customer concentration (often buried in the 10-K), margin pressure vectors they acknowledge, regulatory exposure they flag, geographic/supply chain vulnerabilities. Don't just list generic risks — identify which ones are MATERIAL based on the financial data.
 
-## Threats = Risk events + de-rating catalysts
-Focus on: specific risk events with timelines where possible (antitrust rulings, patent expirations, competitive launches), macro sensitivity, what would make the bull case wrong, concentration risks, sentiment/positioning risks.
+## Opportunities = Catalysts + variant perception (where consensus is wrong)
+Using the MD&A and earnings release: what growth initiatives is management investing in that the market may be underweighting? What segment is inflecting? Where are margins expanding that analysts might be modeling conservatively? Include at least 1 clear VARIANT PERCEPTION — something the market consensus is getting wrong, with your reasoning.
+
+## Threats = Specific risk events + what kills the bull case
+From Risk Factors and competitive landscape: what specific, time-bound events could de-rate the stock? Antitrust rulings, patent cliffs, competitive product launches, regulatory deadlines. Include 1 clear THESIS KILLER — the single most important thing that would make you close the position.
 
 RULES:
-- Every point must be specific to THIS company, not generic. No "strong brand" without saying WHY the brand is durable.
-- Use your knowledge of the company's actual business, products, competitive landscape, and industry dynamics.
-- Back up points with financial metrics from the data (margins, growth rates, P/E, debt/equity, FCF yield) but the insight must go deeper than the number.
-- Include 1 variant perception point in Opportunities (something the market is getting wrong).
-- Include 1 "what kills the thesis" point in Threats.
-
-Structure your response EXACTLY as follows using these markdown headers:
-
-## Strengths
-- [4-6 bullet points, business fundamentals only]
-
-## Weaknesses
-- [4-6 bullet points, structural business vulnerabilities]
-
-## Opportunities
-- [4-6 bullet points, external business opportunities]
-
-## Threats
-- [4-6 bullet points, external business threats]
-
-## Strategic Fit Assessment
-[2-3 paragraphs on how internal capabilities align with external opportunities]
-
-## TOWS Matrix
-**SO Strategy (Maximize Strengths + Opportunities):** ...
-**WO Strategy (Minimize Weaknesses, Maximize Opportunities):** ...
-**ST Strategy (Use Strengths to Counter Threats):** ...
-**WT Strategy (Minimize Weaknesses and Threats):** ...
+- REFERENCE THE FILINGS: cite "per the 10-K" or "management noted in the earnings release" when drawing from filing data. This is what distinguishes your analysis from surface-level research.
+- Every point must be specific to THIS company. No generic "strong brand" or "market leader" without explaining the mechanism.
+- Back up with numbers from BOTH the financial data AND the filings.
+- Be direct. Write like you're briefing a PM before market open, not writing a research report for compliance.
 
 ## Recommendations
-1. [Specific, actionable business recommendation]
-2. ...
-3. ...
+Instead of generic strategic advice, answer: "What should a PM be watching?"
+For each recommendation, specify:
+- The specific LEADING INDICATOR to monitor (not "watch revenue growth" but "track Azure AI services revenue as % of total cloud, reported quarterly")
+- What data point in the NEXT earnings call would confirm or disconfirm the thesis
+- The specific trigger or milestone that would change your view
 
 ## Three Key Questions
-1. [Most important question for further investigation]
-2. ...
-3. ..."""
+The 3 questions a PM should ask before sizing this position. These should be non-obvious, specific, and answerable through further research (channel checks, expert calls, data analysis). Not "is the company well-managed?" but "is the 15% Y/Y growth in enterprise segment sustainable given the SAP migration cycle ending in 2026?"
+
+Structure your response EXACTLY with these markdown headers:
+## Strengths
+## Weaknesses
+## Opportunities
+## Threats
+## Strategic Fit Assessment
+## TOWS Matrix
+## Recommendations
+## Three Key Questions"""
 
 
 # ── Background worker ────────────────────────────────────────────────────
@@ -225,48 +214,41 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
     api_key = os.environ.get("ANTHROPIC_API_KEY")
 
     try:
-        # Step 1: Fetch data
-        job["status"] = "Fetching financial data from Yahoo Finance..."
-        data = fetch_company_data(ticker)
+        # Step 1: Run full research pipeline (all sources in parallel)
+        def research_status(msg):
+            job["status"] = msg
 
-        info = data.get("info", {})
-        has_data = (info.get("longName") or info.get("shortName") or
-                    info.get("symbol") or info.get("regularMarketPrice") or
-                    data.get("price_history_summary"))
+        research = run_full_research(ticker, status_callback=research_status)
 
-        if not has_data:
-            job["error"] = f"Could not fetch data for '{ticker}'. Check the ticker symbol."
-            job["done"] = True
-            return
+        # Check if we got any data at all
+        meta = research.get("meta", {})
+        if not meta.get("name") or meta["name"] == ticker:
+            # Try basic yfinance as fallback
+            try:
+                stock = yf.Ticker(ticker)
+                info = stock.info or {}
+                if not info.get("longName"):
+                    job["error"] = f"Could not fetch data for '{ticker}'. Check the ticker symbol."
+                    job["done"] = True
+                    return
+                meta["name"] = info.get("longName", ticker)
+                meta["sector"] = info.get("sector", "")
+                meta["industry"] = info.get("industry", "")
+            except:
+                job["error"] = f"Could not fetch data for '{ticker}'. Check the ticker symbol."
+                job["done"] = True
+                return
 
-        if not info.get("longName"):
-            info["longName"] = info.get("shortName") or ticker
+        job["meta"] = meta
 
-        # Use fast_info as primary source (more reliable on cloud)
-        fi = data.get("fast_info", {})
+        # Build the full context from all research sources
+        full_context = build_full_context(research)
+        sources = research.get("sources_succeeded", [])
+        failed = research.get("sources_failed", [])
+        print(f"[RESEARCH] {ticker}: {len(sources)} sources OK ({', '.join(sources)}), {len(failed)} failed ({', '.join(failed)}), context={len(full_context)} chars", flush=True)
 
-        mcap = fi.get("marketCap") or info.get("marketCap") or info.get("enterpriseValue")
-        price = (fi.get("lastPrice") or fi.get("previousClose") or
-                 info.get("currentPrice") or info.get("regularMarketPrice") or
-                 info.get("previousClose") or
-                 data.get("price_history_summary", {}).get("current_price"))
-
-        # Send meta
-        job["meta"] = {
-            "name": info.get("longName", ticker),
-            "sector": info.get("sector", ""),
-            "industry": info.get("industry", ""),
-            "marketCap": mcap,
-            "price": price,
-            "priceChange": data.get("price_history_summary", {}).get("price_change_1y_pct"),
-        }
-
-        # Step 2: Build summary
-        job["status"] = "Building financial summary..."
-        summary = build_data_summary(data)
-
-        # Step 3: Generate SWOT with Claude (retry on overload)
-        job["status"] = "Generating SWOT analysis with QuantumIQ AI..."
+        # Step 2: Generate SWOT with Claude (retry on overload)
+        job["status"] = f"Analyzing with QuantumIQ AI ({len(sources)} sources)..."
         client = anthropic.Anthropic(api_key=api_key)
         max_api_retries = 3
 
@@ -279,7 +261,7 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
                     system=SWOT_SYSTEM_PROMPT,
                     messages=[{
                         "role": "user",
-                        "content": f"Produce a comprehensive SWOT analysis for {ticker} based on this data:\n\n{summary}"
+                        "content": f"Produce a comprehensive SWOT analysis for {ticker} ({meta.get('name', '')}).\n\nThe following research has been gathered from {len(sources)} sources: {', '.join(sources)}.\n\n{full_context}"
                 }]
                 ) as stream:
                     for text_chunk in stream.text_stream:
