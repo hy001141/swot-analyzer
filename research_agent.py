@@ -1,0 +1,738 @@
+"""
+Research Agent
+==============
+Level 3 research pipeline:
+1. Gather structured data (Yahoo Finance, SEC, FRED, App Store, insider transactions)
+2. Ask Haiku what company-specific sources to investigate
+3. Run targeted Brave searches in parallel
+4. Scrape top results
+5. Package everything for Opus analysis
+
+Every source is independent — any can fail without breaking the pipeline.
+"""
+
+import os
+import json
+import time
+import requests
+import concurrent.futures
+from typing import Callable
+
+import yfinance as yf
+import anthropic
+
+from sec_fetcher import fetch_sec_data, build_sec_summary
+
+# ── Configuration ────────────────────────────────────────────────────────
+
+BRAVE_API_KEY = os.environ.get("BRAVE_API_KEY", "")
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+WEB_TIMEOUT = 10  # seconds per web request
+MAX_BRAVE_QUERIES = 8
+
+
+# ── Data Sources (all independent, all have try/except) ──────────────────
+
+def fetch_insider_transactions(ticker: str) -> str:
+    """Get insider buy/sell activity from yfinance."""
+    try:
+        stock = yf.Ticker(ticker)
+        ins = stock.insider_transactions
+        if ins is None or ins.empty:
+            return ""
+
+        lines = ["INSIDER TRANSACTIONS (recent):"]
+        for _, row in ins.head(15).iterrows():
+            name = row.get("Insider", "Unknown")
+            pos = row.get("Position", "")
+            text = row.get("Text", "")
+            date = str(row.get("Start Date", ""))[:10]
+            value = row.get("Value", 0)
+            val_str = f"${value:,.0f}" if value and value > 0 else ""
+            lines.append(f"  {date} | {name} ({pos}): {text} {val_str}")
+
+        # Add summary
+        buys = ins[ins["Text"].str.contains("Purchase|Buy", case=False, na=False)]
+        sells = ins[ins["Text"].str.contains("Sale|Sell", case=False, na=False)]
+        lines.append(f"\n  Summary: {len(buys)} purchases, {len(sells)} sales in recent history")
+
+        return "\n".join(lines)
+    except Exception as e:
+        print(f"[INSIDER] Error: {e}")
+        return ""
+
+
+def fetch_short_interest_and_options(ticker: str) -> str:
+    """Get short interest data and put/call ratio."""
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info or {}
+        lines = ["SHORT INTEREST & OPTIONS POSITIONING:"]
+
+        short_ratio = info.get("shortRatio")
+        short_pct = info.get("shortPercentOfFloat")
+        shares_short = info.get("sharesShort")
+        shares_short_prior = info.get("sharesShortPriorMonth")
+
+        if short_ratio is not None:
+            lines.append(f"  Short ratio (days to cover): {short_ratio}")
+        if short_pct is not None:
+            lines.append(f"  Short % of float: {short_pct:.2%}")
+        if shares_short is not None:
+            lines.append(f"  Shares short: {shares_short:,}")
+        if shares_short_prior is not None and shares_short is not None:
+            chg = shares_short - shares_short_prior
+            direction = "increased" if chg > 0 else "decreased"
+            lines.append(f"  Shares short prior month: {shares_short_prior:,} ({direction} by {abs(chg):,})")
+
+        # Put/Call ratio from nearest expiry
+        try:
+            opts = stock.options
+            if opts:
+                chain = stock.option_chain(opts[0])
+                calls_vol = chain.calls["volume"].sum()
+                puts_vol = chain.puts["volume"].sum()
+                if calls_vol and calls_vol > 0:
+                    pcr = puts_vol / calls_vol
+                    lines.append(f"  Put/Call volume ratio (nearest expiry): {pcr:.2f}")
+                    if pcr > 1.0:
+                        lines.append(f"  Signal: Elevated put activity — bearish positioning or hedging")
+                    elif pcr < 0.5:
+                        lines.append(f"  Signal: Low put activity — bullish positioning")
+        except Exception:
+            pass
+
+        return "\n".join(lines) if len(lines) > 1 else ""
+    except Exception as e:
+        print(f"[SHORT] Error: {e}")
+        return ""
+
+
+def fetch_analyst_estimates(ticker: str) -> str:
+    """Get analyst price targets, estimate revisions, and recommendation trends."""
+    try:
+        stock = yf.Ticker(ticker)
+        lines = ["ANALYST ESTIMATES & REVISIONS:"]
+
+        # Price targets
+        try:
+            targets = stock.analyst_price_targets
+            if targets:
+                lines.append(f"  Price target — Mean: ${targets.get('mean', 0):.2f}, "
+                             f"High: ${targets.get('high', 0):.2f}, "
+                             f"Low: ${targets.get('low', 0):.2f}, "
+                             f"Current: ${targets.get('current', 0):.2f}")
+        except Exception:
+            pass
+
+        # Recommendation trends
+        try:
+            rec = stock.recommendations_summary
+            if rec is not None and not rec.empty:
+                current = rec.iloc[0]
+                prior = rec.iloc[1] if len(rec) > 1 else None
+                lines.append(f"  Current ratings — Strong Buy: {current.get('strongBuy', 0)}, "
+                             f"Buy: {current.get('buy', 0)}, "
+                             f"Hold: {current.get('hold', 0)}, "
+                             f"Sell: {current.get('sell', 0)}")
+                if prior is not None:
+                    sb_chg = current.get('strongBuy', 0) - prior.get('strongBuy', 0)
+                    b_chg = current.get('buy', 0) - prior.get('buy', 0)
+                    if sb_chg + b_chg > 0:
+                        lines.append(f"  Trend: Net {sb_chg + b_chg} upgrades vs prior month")
+                    elif sb_chg + b_chg < 0:
+                        lines.append(f"  Trend: Net {abs(sb_chg + b_chg)} downgrades vs prior month")
+        except Exception:
+            pass
+
+        # Earnings estimates
+        try:
+            ee = stock.earnings_estimate
+            if ee is not None and not ee.empty:
+                for idx, row in ee.iterrows():
+                    growth = row.get("growth")
+                    avg = row.get("avg")
+                    yago = row.get("yearAgoEps")
+                    analysts = row.get("numberOfAnalysts")
+                    if avg is not None:
+                        growth_str = f" ({growth:+.1%} Y/Y)" if growth is not None else ""
+                        lines.append(f"  EPS estimate ({idx}): ${avg:.2f}{growth_str} — {int(analysts) if analysts else '?'} analysts")
+        except Exception:
+            pass
+
+        return "\n".join(lines) if len(lines) > 1 else ""
+    except Exception as e:
+        print(f"[ANALYST] Error: {e}")
+        return ""
+
+
+def fetch_earnings_history(ticker: str) -> str:
+    """Get earnings beat/miss history."""
+    try:
+        stock = yf.Ticker(ticker)
+        eh = stock.earnings_history
+        if eh is None or eh.empty:
+            return ""
+
+        lines = ["EARNINGS SURPRISE HISTORY:"]
+        beats = 0
+        total = 0
+        for idx, row in eh.iterrows():
+            actual = row.get("epsActual")
+            estimate = row.get("epsEstimate")
+            surprise = row.get("surprisePercent")
+            if actual is not None and estimate is not None:
+                total += 1
+                beat = actual > estimate
+                if beat:
+                    beats += 1
+                icon = "BEAT" if beat else "MISS"
+                surprise_str = f" ({surprise:+.1%})" if surprise is not None else ""
+                lines.append(f"  {idx}: Actual ${actual:.2f} vs Est ${estimate:.2f} — {icon}{surprise_str}")
+
+        if total > 0:
+            lines.append(f"\n  Track record: {beats}/{total} beats ({beats/total:.0%} hit rate)")
+            if beats == total:
+                lines.append(f"  Signal: Consistent beater — management likely sandbagging guidance")
+
+        return "\n".join(lines) if len(lines) > 1 else ""
+    except Exception as e:
+        print(f"[EARNINGS_HIST] Error: {e}")
+        return ""
+
+
+def fetch_institutional_changes(ticker: str) -> str:
+    """Get institutional ownership with changes."""
+    try:
+        stock = yf.Ticker(ticker)
+        ih = stock.institutional_holders
+        if ih is None or ih.empty:
+            return ""
+
+        lines = ["INSTITUTIONAL OWNERSHIP (top holders + changes):"]
+        for _, row in ih.head(10).iterrows():
+            holder = row.get("Holder", "Unknown")
+            pct = row.get("pctHeld", 0)
+            shares = row.get("Shares", 0)
+            value = row.get("Value", 0)
+            chg = row.get("pctChange", 0)
+
+            chg_str = ""
+            if chg is not None and chg != 0:
+                direction = "added" if chg > 0 else "reduced"
+                chg_str = f" — {direction} {abs(chg):.1%}"
+
+            val_str = f"${value/1e9:.1f}B" if value and value > 1e9 else f"${value/1e6:.0f}M" if value else ""
+            lines.append(f"  {holder}: {pct:.1%} ({shares:,.0f} shares, {val_str}){chg_str}")
+
+        return "\n".join(lines) if len(lines) > 1 else ""
+    except Exception as e:
+        print(f"[INSTITUTIONAL] Error: {e}")
+        return ""
+
+
+def fetch_macro_data() -> str:
+    """Get key macro indicators from FRED (no API key needed)."""
+    try:
+        indicators = {
+            "FEDFUNDS": "Fed Funds Rate",
+            "CPIAUCSL": "CPI (Consumer Price Index)",
+            "GDP": "GDP",
+            "UNRATE": "Unemployment Rate",
+            "T10Y2Y": "10Y-2Y Treasury Spread",
+            "VIXCLS": "VIX (Volatility Index)",
+        }
+
+        lines = ["MACRO ENVIRONMENT (from FRED):"]
+        for series_id, label in indicators.items():
+            try:
+                r = requests.get(
+                    f"https://fred.stlouisfed.org/graph/fredgraph.csv?id={series_id}&cosd=2025-01-01",
+                    timeout=WEB_TIMEOUT
+                )
+                if r.status_code == 200:
+                    rows = r.text.strip().split("\n")
+                    if len(rows) >= 2:
+                        latest = rows[-1].split(",")
+                        if len(latest) == 2 and latest[1] != ".":
+                            lines.append(f"  {label}: {latest[1]} (as of {latest[0]})")
+            except Exception:
+                continue
+
+        return "\n".join(lines) if len(lines) > 1 else ""
+    except Exception as e:
+        print(f"[MACRO] Error: {e}")
+        return ""
+
+
+def fetch_app_store_data(company_name: str) -> str:
+    """Get app ratings and review counts from iTunes API."""
+    try:
+        r = requests.get(
+            f"https://itunes.apple.com/search?term={requests.utils.quote(company_name)}&entity=software&country=us&limit=10",
+            timeout=WEB_TIMEOUT
+        )
+        if r.status_code != 200:
+            return ""
+
+        data = r.json()
+        results = data.get("results", [])
+        if not results:
+            return ""
+
+        lines = ["APP STORE DATA (iOS):"]
+        for app in results[:8]:
+            name = app.get("trackName", "")
+            rating = app.get("averageUserRating", 0)
+            reviews = app.get("userRatingCount", 0)
+            if reviews > 1000:  # Only show significant apps
+                lines.append(f"  {name}: {rating:.1f}/5 ({reviews:,} reviews)")
+
+        return "\n".join(lines) if len(lines) > 1 else ""
+    except Exception as e:
+        print(f"[APPSTORE] Error: {e}")
+        return ""
+
+
+# ── Brave Search ─────────────────────────────────────────────────────────
+
+def brave_search(query: str, count: int = 5) -> list[dict]:
+    """Run a single Brave Search query. Returns list of {title, url, description}."""
+    if not BRAVE_API_KEY:
+        return []
+    try:
+        r = requests.get(
+            "https://api.search.brave.com/res/v1/web/search",
+            params={"q": query, "count": count, "freshness": "py"},  # past year
+            headers={"X-Subscription-Token": BRAVE_API_KEY},
+            timeout=WEB_TIMEOUT
+        )
+        if r.status_code != 200:
+            return []
+
+        results = r.json().get("web", {}).get("results", [])
+        return [
+            {
+                "title": r.get("title", ""),
+                "url": r.get("url", ""),
+                "description": r.get("description", ""),
+            }
+            for r in results
+        ]
+    except Exception as e:
+        print(f"[BRAVE] Search error for '{query}': {e}")
+        return []
+
+
+def scrape_url(url: str, max_chars: int = 5000) -> str:
+    """Scrape text content from a URL."""
+    try:
+        r = requests.get(
+            url,
+            headers={"User-Agent": "Mozilla/5.0 (compatible; QuantumIQ/1.0)"},
+            timeout=WEB_TIMEOUT
+        )
+        if r.status_code != 200:
+            return ""
+
+        from bs4 import BeautifulSoup
+        import warnings
+        from bs4 import XMLParsedAsHTMLWarning
+        warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
+
+        soup = BeautifulSoup(r.text[:200000], "lxml")
+        # Remove noise
+        for tag in soup(["script", "style", "nav", "footer", "header", "aside"]):
+            tag.decompose()
+
+        text = soup.get_text(separator="\n")
+        # Clean
+        import re
+        text = re.sub(r'\n{3,}', '\n\n', text)
+        text = re.sub(r' {2,}', ' ', text)
+        text = text.strip()
+
+        return text[:max_chars] if text else ""
+    except Exception:
+        return ""
+
+
+def run_brave_research(queries: list[str], status_callback: Callable = None) -> str:
+    """Run multiple Brave searches and scrape top results."""
+    if not BRAVE_API_KEY:
+        return ""
+
+    all_results = []
+
+    # Run searches in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        future_to_query = {
+            executor.submit(brave_search, q, 3): q for q in queries[:MAX_BRAVE_QUERIES]
+        }
+        for future in concurrent.futures.as_completed(future_to_query):
+            query = future_to_query[future]
+            try:
+                results = future.result()
+                for r in results:
+                    r["query"] = query
+                    all_results.append(r)
+            except Exception:
+                continue
+
+    if not all_results:
+        return ""
+
+    # Deduplicate by URL
+    seen_urls = set()
+    unique_results = []
+    for r in all_results:
+        if r["url"] not in seen_urls:
+            seen_urls.add(r["url"])
+            unique_results.append(r)
+
+    # Scrape top results in parallel (limit to 8 to avoid being slow)
+    if status_callback:
+        status_callback(f"Analyzing {len(unique_results[:8])} web sources...")
+
+    scraped = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        future_to_result = {
+            executor.submit(scrape_url, r["url"], 3000): r
+            for r in unique_results[:8]
+        }
+        for future in concurrent.futures.as_completed(future_to_result):
+            result = future_to_result[future]
+            try:
+                text = future.result()
+                if text and len(text) > 200:
+                    scraped.append({
+                        "title": result["title"],
+                        "url": result["url"],
+                        "query": result["query"],
+                        "content": text,
+                    })
+            except Exception:
+                continue
+
+    if not scraped:
+        return ""
+
+    # Format for Claude
+    lines = [f"WEB RESEARCH ({len(scraped)} sources scraped):"]
+    for s in scraped:
+        lines.append(f"\n--- Source: {s['title']} ---")
+        lines.append(f"URL: {s['url']}")
+        lines.append(f"Search query: {s['query']}")
+        lines.append(s["content"])
+
+    return "\n".join(lines)
+
+
+# ── Haiku Source Recommender ─────────────────────────────────────────────
+
+def get_research_queries(ticker: str, company_name: str, sector: str) -> list[str]:
+    """Ask Haiku what to search for this specific company."""
+    if not ANTHROPIC_API_KEY:
+        return _default_queries(ticker, company_name)
+
+    try:
+        client = anthropic.Anthropic()
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=500,
+            messages=[{
+                "role": "user",
+                "content": f"""You are a hedge fund research analyst. For {company_name} ({ticker}), sector: {sector}.
+
+What 6 specific web searches would find non-obvious, investment-relevant intelligence that ISN'T in standard filings or Yahoo Finance?
+
+Think: company blog posts, engineering publications, patent filings, regulatory submissions, supply chain signals, hiring trends, competitor moves, industry-specific data.
+
+Return ONLY a JSON array of 6 search query strings. No explanation. Example:
+["NVIDIA blog AI inference optimization 2025", "TSMC capacity allocation NVIDIA vs AMD"]"""
+            }]
+        )
+        text = response.content[0].text.strip()
+        # Parse JSON array
+        if "[" in text:
+            json_str = text[text.index("["):text.rindex("]") + 1]
+            queries = json.loads(json_str)
+            if isinstance(queries, list) and len(queries) > 0:
+                return queries[:8]
+    except Exception as e:
+        print(f"[HAIKU] Error getting research queries: {e}")
+
+    return _default_queries(ticker, company_name)
+
+
+def _default_queries(ticker: str, company_name: str) -> list[str]:
+    """Fallback search queries if Haiku fails."""
+    return [
+        f'"{company_name}" blog announcement 2025 2026',
+        f'"{company_name}" patent filing recent',
+        f"{ticker} earnings analysis bull bear case",
+        f'"{company_name}" competitive threat disruption',
+        f"{ticker} insider trading congressional",
+        f'"{company_name}" hiring engineering jobs signal',
+    ]
+
+
+# ── Main Research Pipeline ───────────────────────────────────────────────
+
+def run_full_research(ticker: str, status_callback: Callable = None) -> dict:
+    """
+    Run the complete Level 3 research pipeline.
+    All sources are independent — any can fail without breaking others.
+    Returns dict with all gathered intelligence.
+    """
+    results = {
+        "yahoo_finance": "",
+        "sec_filing": "",
+        "insider_transactions": "",
+        "short_interest": "",
+        "analyst_estimates": "",
+        "earnings_history": "",
+        "institutional_changes": "",
+        "macro_data": "",
+        "app_store": "",
+        "web_research": "",
+        "sources_succeeded": [],
+        "sources_failed": [],
+        "meta": {},
+    }
+
+    def _status(msg):
+        if status_callback:
+            status_callback(msg)
+
+    # Step 1: Yahoo Finance (blocking — we need company name for other queries)
+    _status("Fetching financial data...")
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info or {}
+
+        # fast_info for reliable market data
+        fi_data = {}
+        try:
+            fi = stock.fast_info
+            try: fi_data["marketCap"] = float(fi.market_cap)
+            except: pass
+            try: fi_data["lastPrice"] = fi.last_price
+            except: pass
+            try: fi_data["previousClose"] = fi.previous_close
+            except: pass
+        except:
+            pass
+
+        company_name = info.get("longName") or info.get("shortName") or ticker
+        sector = info.get("sector", "")
+        industry = info.get("industry", "")
+
+        results["meta"] = {
+            "name": company_name,
+            "sector": sector,
+            "industry": industry,
+            "marketCap": fi_data.get("marketCap") or info.get("marketCap"),
+            "price": (fi_data.get("lastPrice") or fi_data.get("previousClose") or
+                      info.get("currentPrice") or info.get("regularMarketPrice")),
+        }
+
+        # Build financial summary
+        from app import fetch_company_data, build_data_summary
+        data = fetch_company_data(ticker)
+        results["yahoo_finance"] = build_data_summary(data)
+
+        # Get price history for meta
+        ph = data.get("price_history_summary", {})
+        pc = ph.get("price_change_1y_pct")
+        results["meta"]["priceChange"] = float(pc) if pc is not None else None
+
+        results["sources_succeeded"].append("Yahoo Finance")
+    except Exception as e:
+        print(f"[YAHOO] Error: {e}")
+        results["sources_failed"].append("Yahoo Finance")
+        company_name = ticker
+        sector = ""
+
+    # Step 2: Run independent sources in parallel
+    _status("Gathering intelligence from multiple sources...")
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        # SEC filings
+        sec_future = executor.submit(
+            fetch_sec_data, ticker, lambda m: _status(m)
+        )
+
+        # Insider transactions
+        insider_future = executor.submit(fetch_insider_transactions, ticker)
+
+        # Short interest + options
+        short_future = executor.submit(fetch_short_interest_and_options, ticker)
+
+        # Analyst estimates
+        analyst_future = executor.submit(fetch_analyst_estimates, ticker)
+
+        # Earnings surprise history
+        earnings_hist_future = executor.submit(fetch_earnings_history, ticker)
+
+        # Institutional ownership changes
+        institutional_future = executor.submit(fetch_institutional_changes, ticker)
+
+        # Macro data
+        macro_future = executor.submit(fetch_macro_data)
+
+        # App store (only for consumer-facing companies)
+        app_future = executor.submit(fetch_app_store_data, company_name)
+
+        # Haiku research queries (needs company name)
+        _status("Planning targeted research...")
+        queries_future = executor.submit(
+            get_research_queries, ticker, company_name, sector
+        )
+
+        # Collect results as they complete
+        try:
+            sec_data = sec_future.result(timeout=60)
+            results["sec_filing"] = build_sec_summary(sec_data)
+            if results["sec_filing"]:
+                results["sources_succeeded"].append(f"SEC {sec_data.get('annual_type', 'Filing')}")
+        except Exception as e:
+            print(f"[SEC] Error: {e}")
+            results["sources_failed"].append("SEC EDGAR")
+
+        try:
+            results["insider_transactions"] = insider_future.result(timeout=15)
+            if results["insider_transactions"]:
+                results["sources_succeeded"].append("Insider Transactions")
+        except Exception:
+            results["sources_failed"].append("Insider Transactions")
+
+        try:
+            results["short_interest"] = short_future.result(timeout=15)
+            if results["short_interest"]:
+                results["sources_succeeded"].append("Short Interest & Options")
+        except Exception:
+            pass
+
+        try:
+            results["analyst_estimates"] = analyst_future.result(timeout=15)
+            if results["analyst_estimates"]:
+                results["sources_succeeded"].append("Analyst Estimates")
+        except Exception:
+            pass
+
+        try:
+            results["earnings_history"] = earnings_hist_future.result(timeout=15)
+            if results["earnings_history"]:
+                results["sources_succeeded"].append("Earnings History")
+        except Exception:
+            pass
+
+        try:
+            results["institutional_changes"] = institutional_future.result(timeout=15)
+            if results["institutional_changes"]:
+                results["sources_succeeded"].append("Institutional Ownership")
+        except Exception:
+            pass
+
+        try:
+            results["macro_data"] = macro_future.result(timeout=15)
+            if results["macro_data"]:
+                results["sources_succeeded"].append("FRED Macro Data")
+        except Exception:
+            results["sources_failed"].append("FRED Macro Data")
+
+        try:
+            app_data = app_future.result(timeout=15)
+            if app_data:
+                results["app_store"] = app_data
+                results["sources_succeeded"].append("App Store Rankings")
+        except Exception:
+            pass  # Not critical, don't report as failure
+
+        # Get Haiku's search recommendations
+        try:
+            search_queries = queries_future.result(timeout=20)
+        except Exception:
+            search_queries = _default_queries(ticker, company_name)
+
+    # Step 3: Run Brave web research with Haiku's queries
+    if BRAVE_API_KEY:
+        _status(f"Searching {len(search_queries)} targeted queries...")
+        try:
+            results["web_research"] = run_brave_research(
+                search_queries, status_callback=_status
+            )
+            if results["web_research"]:
+                results["sources_succeeded"].append("Web Research (Brave)")
+        except Exception as e:
+            print(f"[BRAVE] Error: {e}")
+            results["sources_failed"].append("Web Research")
+
+    return results
+
+
+def build_full_context(results: dict) -> str:
+    """Combine all research results into a single context string for Claude."""
+    sections = []
+
+    # Sources summary
+    succeeded = results.get("sources_succeeded", [])
+    failed = results.get("sources_failed", [])
+    sections.append(f"RESEARCH SOURCES USED: {', '.join(succeeded)}")
+    if failed:
+        sections.append(f"SOURCES UNAVAILABLE: {', '.join(failed)}")
+    sections.append("")
+
+    # Financial data
+    if results.get("yahoo_finance"):
+        sections.append("=" * 60)
+        sections.append("FINANCIAL DATA (Yahoo Finance)")
+        sections.append("=" * 60)
+        sections.append(results["yahoo_finance"])
+
+    # SEC filing
+    if results.get("sec_filing"):
+        sections.append("\n" + results["sec_filing"])
+
+    # Insider transactions
+    if results.get("insider_transactions"):
+        sections.append("\n" + "=" * 60)
+        sections.append(results["insider_transactions"])
+
+    # Short interest & options
+    if results.get("short_interest"):
+        sections.append("\n" + "=" * 60)
+        sections.append(results["short_interest"])
+
+    # Analyst estimates
+    if results.get("analyst_estimates"):
+        sections.append("\n" + "=" * 60)
+        sections.append(results["analyst_estimates"])
+
+    # Earnings history
+    if results.get("earnings_history"):
+        sections.append("\n" + "=" * 60)
+        sections.append(results["earnings_history"])
+
+    # Institutional ownership
+    if results.get("institutional_changes"):
+        sections.append("\n" + "=" * 60)
+        sections.append(results["institutional_changes"])
+
+    # Macro
+    if results.get("macro_data"):
+        sections.append("\n" + "=" * 60)
+        sections.append(results["macro_data"])
+
+    # App store
+    if results.get("app_store"):
+        sections.append("\n" + "=" * 60)
+        sections.append(results["app_store"])
+
+    # Web research
+    if results.get("web_research"):
+        sections.append("\n" + "=" * 60)
+        sections.append(results["web_research"])
+
+    return "\n".join(sections)
