@@ -705,6 +705,8 @@
   const SESSION_ID = Math.random().toString(36).slice(2);
   let currentTicker = "";
   let accumulatedText = "";
+  let retryCount = 0;
+  const MAX_RETRIES = 2;
 
   // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -812,6 +814,7 @@
 
     currentTicker = ticker;
     accumulatedText = "";
+    retryCount = 0;
     hideError();
 
     // Hide/reset UI
@@ -898,10 +901,28 @@
 
         // Check if done
         if (data.done) {
+          const hasSwot = accumulatedText.includes("## Strengths") || accumulatedText.includes("## Weaknesses");
+          const isComplete = hasSwot && (accumulatedText.includes("## Recommendations") || accumulatedText.includes("## Three Key Questions"));
+
+          // Auto-retry if partial (has some SWOT but incomplete)
+          if (hasSwot && !isComplete && retryCount < MAX_RETRIES) {
+            retryCount++;
+            accumulatedText = "";
+            setStatus(`Analysis interrupted, retrying (${retryCount}/${MAX_RETRIES})...`);
+            fetch("/api/analyze", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ticker: currentTicker, session_id: SESSION_ID })
+            })
+            .then(r => r.json())
+            .then(d => { if (d.job_id) pollJob(d.job_id, 0); });
+            return;
+          }
+
           setStatus(null);
           document.getElementById("analyzeBtn").disabled = false;
-          // Only show results if we got actual SWOT content
-          const hasSwot = accumulatedText.includes("## Strengths") || accumulatedText.includes("## Weaknesses");
+          retryCount = 0;
+
           if (hasSwot) {
             renderSections(accumulatedText);
             document.getElementById("chatSection").classList.remove("hidden");
