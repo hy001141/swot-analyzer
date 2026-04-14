@@ -704,13 +704,13 @@
           if (m.marketCap) {
             statsEl.innerHTML += `<div class="stat-item"><div class="stat-label">Market Cap</div><div class="stat-value">${fmtMarketCap(m.marketCap)}</div></div>`;
           }
-          if (m.price) {
-            const sign = (m.priceChange || 0) >= 0 ? "+" : "";
-            const cls  = (m.priceChange || 0) >= 0 ? "positive" : "negative";
-            statsEl.innerHTML += `<div class="stat-item"><div class="stat-label">Price</div><div class="stat-value">${m.price.toFixed(2)}</div></div>`;
-            if (m.priceChange !== undefined && m.priceChange !== null) {
-              statsEl.innerHTML += `<div class="stat-item"><div class="stat-label">1Y Return</div><div class="stat-value ${cls}">${sign}${m.priceChange}%</div></div>`;
-            }
+          if (m.price != null) {
+            statsEl.innerHTML += `<div class="stat-item"><div class="stat-label">Price</div><div class="stat-value">$${Number(m.price).toFixed(2)}</div></div>`;
+          }
+          if (m.priceChange != null) {
+            const sign = m.priceChange >= 0 ? "+" : "";
+            const cls  = m.priceChange >= 0 ? "positive" : "negative";
+            statsEl.innerHTML += `<div class="stat-item"><div class="stat-label">1Y Return</div><div class="stat-value ${cls}">${sign}${m.priceChange}%</div></div>`;
           }
           document.getElementById("companyCard").classList.add("visible");
           document.getElementById("swotGrid").style.display = "grid";

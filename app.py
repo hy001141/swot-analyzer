@@ -214,7 +214,7 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
             "sector": info.get("sector", ""),
             "industry": info.get("industry", ""),
             "marketCap": info.get("marketCap"),
-            "price": info.get("currentPrice") or info.get("regularMarketPrice"),
+            "price": info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose") or data.get("price_history_summary", {}).get("current_price"),
             "priceChange": data.get("price_history_summary", {}).get("price_change_1y_pct"),
         }
 
