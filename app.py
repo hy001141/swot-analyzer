@@ -272,7 +272,8 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
         print(f"[ERROR] Analysis failed for {ticker}: {e}", flush=True)
         job["error"] = str(e)
     finally:
-        if job["text"] and session_id not in conversations:
+        # Always store conversation if we have any text (even partial)
+        if job["text"]:
             conversations[session_id] = [
                 {"role": "user", "content": f"Produce a SWOT analysis for {ticker}."},
                 {"role": "assistant", "content": job["text"]},
