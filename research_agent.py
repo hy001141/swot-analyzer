@@ -586,17 +586,18 @@ def run_competitor_analysis(ticker: str, company_name: str, sector: str, industr
     if status_callback:
         status_callback(f"Analyzing {len(comp_tickers)} competitors: {', '.join(comp_tickers)}...")
 
-    # Fetch all competitor data in parallel
+    # Fetch competitor data sequentially with delays to avoid Yahoo rate limiting
     comp_data = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        futures = {executor.submit(fetch_competitor_data, t): t for t in comp_tickers}
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                data = future.result(timeout=45)
-                if data.get("financials", {}).get("name"):
-                    comp_data.append(data)
-            except Exception:
-                continue
+    for i, t in enumerate(comp_tickers):
+        if status_callback:
+            status_callback(f"Researching competitor {i+1}/{len(comp_tickers)}: {t}...")
+        try:
+            data = fetch_competitor_data(t)
+            if data.get("financials", {}).get("name"):
+                comp_data.append(data)
+        except Exception:
+            continue
+        time.sleep(1)  # avoid Yahoo rate limiting
 
     if not comp_data:
         return result
@@ -750,7 +751,19 @@ def run_full_research(ticker: str, status_callback: Callable = None) -> dict:
     _status("Fetching financial data...")
     try:
         stock = yf.Ticker(ticker)
-        info = stock.info or {}
+        # Retry on rate limit
+        for _attempt in range(3):
+            try:
+                info = stock.info or {}
+                if info.get("longName") or info.get("shortName"):
+                    break
+            except Exception as yf_err:
+                if "rate" in str(yf_err).lower() or "429" in str(yf_err) or "401" in str(yf_err):
+                    time.sleep(3)
+                    continue
+                raise
+        else:
+            info = {}
 
         # fast_info for reliable market data
         fi_data = {}
@@ -801,6 +814,7 @@ def run_full_research(ticker: str, status_callback: Callable = None) -> dict:
         results["sources_failed"].append("Yahoo Finance")
         company_name = ticker
         sector = ""
+        industry = ""
 
     # Step 2: Run independent sources in parallel
     _status("Gathering intelligence from multiple sources...")
@@ -918,7 +932,7 @@ def run_full_research(ticker: str, status_callback: Callable = None) -> dict:
         _status("Analyzing competitors...")
         comp_future = executor.submit(
             run_competitor_analysis, ticker, company_name, sector,
-            info.get("industry", ""), _status
+            industry, _status
         )
 
         if brave_future:
