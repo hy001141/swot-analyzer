@@ -17,13 +17,20 @@ if sys.platform == "win32":
 from flask import Flask, render_template, request, Response, jsonify, stream_with_context
 import yfinance as yf
 import anthropic
+import requests
+
+# Set a browser-like user agent so Yahoo Finance doesn't block cloud server IPs
+session = requests.Session()
+session.headers.update({
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+})
 
 app = Flask(__name__)
 
 # ── Reuse data-gathering logic from swot_analyzer ──────────────────────────
 
 def fetch_company_data(ticker: str) -> dict:
-    stock = yf.Ticker(ticker)
+    stock = yf.Ticker(ticker, session=session)
     data = {}
 
     try:
@@ -234,9 +241,14 @@ def analyze():
             return
 
         info = data.get("info", {})
-        if not info.get("longName"):
-            yield f"data: {json.dumps({'type': 'error', 'message': f'Ticker {ticker!r} not found.'})}\n\n"
+        # Accept if we got any meaningful info at all
+        has_data = info.get("longName") or info.get("shortName") or info.get("symbol") or info.get("regularMarketPrice") or data.get("price_history_summary")
+        if not has_data:
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Could not fetch data for {ticker!r}. Check the ticker symbol and try again.'})}\n\n"
             return
+        # Fill in name fallbacks
+        if not info.get("longName"):
+            info["longName"] = info.get("shortName") or ticker
 
         yield f"data: {json.dumps({'type': 'status', 'message': 'Building financial summary...'})}\n\n"
         summary = build_data_summary(data)
