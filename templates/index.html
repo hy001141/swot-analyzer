@@ -3,63 +3,65 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>SWOT Analyzer</title>
+  <title>QuantumIQ — SWOT Terminal</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     /* ── Reset & Base ── */
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
-      --bg: #0d0f14;
-      --surface: #161a23;
-      --surface2: #1e2330;
-      --border: #2a2f3e;
-      --text: #e8eaf0;
-      --muted: #8b90a0;
-      --accent: #5b8dee;
-      --green: #3ecf8e;
-      --red: #f56565;
-      --amber: #f6ad55;
-      --blue: #63b3ed;
-      --green-dim: rgba(62,207,142,0.08);
-      --red-dim: rgba(245,101,101,0.08);
-      --amber-dim: rgba(246,173,85,0.08);
-      --blue-dim: rgba(99,179,237,0.08);
+      --bg: #000000;
+      --surface: #0a0a0a;
+      --surface2: #111111;
+      --border: #1a1a1a;
+      --text: #ff9900;
+      --text-white: #cccccc;
+      --muted: #666666;
+      --accent: #ff9900;
+      --green: #00cc00;
+      --red: #ff3333;
+      --amber: #ff9900;
+      --blue: #3399ff;
+      --green-dim: rgba(0,204,0,0.06);
+      --red-dim: rgba(255,51,51,0.06);
+      --amber-dim: rgba(255,153,0,0.06);
+      --blue-dim: rgba(51,153,255,0.06);
     }
-    html { font-size: 15px; }
+    html { font-size: 14px; }
     body {
       background: var(--bg);
-      color: var(--text);
-      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+      color: var(--text-white);
+      font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
       min-height: 100vh;
-      line-height: 1.6;
+      line-height: 1.5;
     }
 
     /* ── Header ── */
     header {
-      padding: 2rem 2rem 1.5rem;
-      border-bottom: 1px solid var(--border);
+      padding: 0.6rem 1.5rem;
+      border-bottom: 2px solid #ff9900;
       display: flex;
       align-items: center;
-      gap: 1rem;
+      gap: 0.75rem;
+      background: #0a0a0a;
     }
     .logo {
-      width: 36px; height: 36px;
-      background: linear-gradient(135deg, var(--accent), #9b5de5);
-      border-radius: 10px;
-      display: flex; align-items: center; justify-content: center;
-      font-size: 1.1rem;
+      color: #ff9900;
+      font-weight: 700;
+      font-size: 1rem;
+      letter-spacing: 0.05em;
     }
-    header h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; }
-    header span { color: var(--muted); font-size: 0.85rem; margin-left: 0.5rem; font-weight: 400; }
+    header h1 { font-size: 1rem; font-weight: 700; color: #ff9900; letter-spacing: 0.05em; }
+    header span { color: var(--muted); font-size: 0.8rem; margin-left: 0.5rem; font-weight: 400; }
 
     /* ── Layout ── */
-    .container { max-width: 1100px; margin: 0 auto; padding: 2rem; }
+    .container { max-width: 1100px; margin: 0 auto; padding: 1.5rem; }
 
     /* ── Search ── */
     .search-wrap {
       display: flex;
-      gap: 0.75rem;
-      margin-bottom: 2.5rem;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
     }
     .search-input-wrap {
       position: relative;
@@ -67,65 +69,68 @@
     }
     .search-icon {
       position: absolute;
-      left: 1rem;
+      left: 0.75rem;
       top: 50%;
       transform: translateY(-50%);
-      color: var(--muted);
-      font-size: 1rem;
+      color: #ff9900;
+      font-size: 0.85rem;
       pointer-events: none;
     }
     #tickerInput {
       width: 100%;
-      padding: 0.875rem 1rem 0.875rem 2.75rem;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      color: var(--text);
+      padding: 0.6rem 0.75rem 0.6rem 2.25rem;
+      background: #0a0a0a;
+      border: 1px solid #333;
+      border-radius: 0;
+      color: #ff9900;
       font-size: 1rem;
       font-family: inherit;
       outline: none;
       transition: border-color 0.2s;
-      letter-spacing: 0.02em;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
-    #tickerInput:focus { border-color: var(--accent); }
-    #tickerInput::placeholder { color: var(--muted); letter-spacing: 0; }
+    #tickerInput:focus { border-color: #ff9900; }
+    #tickerInput::placeholder { color: #444; letter-spacing: 0.05em; text-transform: none; }
 
     #analyzeBtn {
-      padding: 0.875rem 1.75rem;
-      background: var(--accent);
-      color: #fff;
+      padding: 0.6rem 1.5rem;
+      background: #ff9900;
+      color: #000;
       border: none;
-      border-radius: 10px;
-      font-size: 0.95rem;
-      font-weight: 600;
+      border-radius: 0;
+      font-size: 0.85rem;
+      font-weight: 700;
       cursor: pointer;
-      transition: opacity 0.2s, transform 0.1s;
+      transition: background 0.2s;
       white-space: nowrap;
       font-family: inherit;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
-    #analyzeBtn:hover { opacity: 0.9; }
-    #analyzeBtn:active { transform: scale(0.98); }
-    #analyzeBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #analyzeBtn:hover { background: #ffaa22; }
+    #analyzeBtn:active { background: #cc7a00; }
+    #analyzeBtn:disabled { opacity: 0.4; cursor: not-allowed; }
 
     /* ── Status banner ── */
     #statusBanner {
       display: none;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1rem 1.25rem;
-      margin-bottom: 1.5rem;
+      background: #0a0a0a;
+      border: 1px solid #333;
+      border-radius: 0;
+      padding: 0.6rem 1rem;
+      margin-bottom: 1rem;
       display: flex;
       align-items: center;
       gap: 0.75rem;
-      color: var(--muted);
-      font-size: 0.9rem;
+      color: #ff9900;
+      font-size: 0.8rem;
     }
     #statusBanner.hidden { display: none; }
     .spinner {
-      width: 16px; height: 16px;
-      border: 2px solid var(--border);
-      border-top-color: var(--accent);
+      width: 14px; height: 14px;
+      border: 2px solid #333;
+      border-top-color: #ff9900;
       border-radius: 50%;
       animation: spin 0.7s linear infinite;
       flex-shrink: 0;
@@ -134,11 +139,12 @@
 
     /* ── Company header card ── */
     #companyCard {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 1.5rem;
-      margin-bottom: 2rem;
+      background: #0a0a0a;
+      border: 1px solid #333;
+      border-left: 3px solid #ff9900;
+      border-radius: 0;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.5rem;
       display: none;
     }
     #companyCard.visible { display: block; }
@@ -149,18 +155,18 @@
       flex-wrap: wrap;
       gap: 1rem;
     }
-    .company-name { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
-    .company-sub { color: var(--muted); font-size: 0.9rem; margin-top: 0.25rem; }
+    .company-name { font-size: 1.2rem; font-weight: 700; color: #ff9900; letter-spacing: 0.05em; }
+    .company-sub { color: var(--muted); font-size: 0.8rem; margin-top: 0.2rem; }
     .company-stats {
       display: flex;
       gap: 2rem;
       flex-wrap: wrap;
     }
     .stat-item { text-align: right; }
-    .stat-label { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
-    .stat-value { font-size: 1.1rem; font-weight: 600; margin-top: 0.1rem; }
-    .stat-value.positive { color: var(--green); }
-    .stat-value.negative { color: var(--red); }
+    .stat-label { color: #666; font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; }
+    .stat-value { font-size: 1rem; font-weight: 600; margin-top: 0.1rem; color: #fff; }
+    .stat-value.positive { color: #00cc00; }
+    .stat-value.negative { color: #ff3333; }
 
     /* ── SWOT Grid ── */
     #swotGrid {
@@ -172,222 +178,329 @@
     @media (max-width: 700px) { #swotGrid { grid-template-columns: 1fr; } }
 
     .swot-card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 1.5rem;
-      min-height: 200px;
+      background: #0a0a0a;
+      border: 1px solid #333;
+      border-radius: 0;
+      padding: 1.25rem;
+      min-height: 180px;
     }
-    .swot-card.s { border-top: 3px solid var(--green); background: linear-gradient(180deg, var(--green-dim) 0%, var(--surface) 80px); }
-    .swot-card.w { border-top: 3px solid var(--red);   background: linear-gradient(180deg, var(--red-dim)   0%, var(--surface) 80px); }
-    .swot-card.o { border-top: 3px solid var(--blue);  background: linear-gradient(180deg, var(--blue-dim)  0%, var(--surface) 80px); }
-    .swot-card.t { border-top: 3px solid var(--amber); background: linear-gradient(180deg, var(--amber-dim) 0%, var(--surface) 80px); }
+    .swot-card.s { border-top: 2px solid #00cc00; }
+    .swot-card.w { border-top: 2px solid #ff3333; }
+    .swot-card.o { border-top: 2px solid #3399ff; }
+    .swot-card.t { border-top: 2px solid #ff9900; }
 
     .swot-header {
       display: flex;
       align-items: center;
-      gap: 0.6rem;
-      margin-bottom: 1rem;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid #222;
     }
     .swot-badge {
-      width: 28px; height: 28px;
-      border-radius: 8px;
+      width: 22px; height: 22px;
+      border-radius: 0;
       display: flex; align-items: center; justify-content: center;
-      font-weight: 800; font-size: 0.8rem;
+      font-weight: 700; font-size: 0.75rem;
     }
-    .s .swot-badge { background: rgba(62,207,142,0.15); color: var(--green); }
-    .w .swot-badge { background: rgba(245,101,101,0.15); color: var(--red); }
-    .o .swot-badge { background: rgba(99,179,237,0.15);  color: var(--blue); }
-    .t .swot-badge { background: rgba(246,173,85,0.15);  color: var(--amber); }
+    .s .swot-badge { background: #00cc00; color: #000; }
+    .w .swot-badge { background: #ff3333; color: #000; }
+    .o .swot-badge { background: #3399ff; color: #000; }
+    .t .swot-badge { background: #ff9900; color: #000; }
 
-    .swot-title { font-weight: 700; font-size: 1rem; }
-    .swot-subtitle { font-size: 0.75rem; color: var(--muted); margin-left: auto; }
+    .swot-title { font-weight: 700; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.08em; color: #ccc; }
+    .swot-subtitle { font-size: 0.65rem; color: #555; margin-left: auto; text-transform: uppercase; letter-spacing: 0.08em; }
 
-    .swot-content { color: var(--text); font-size: 0.88rem; line-height: 1.7; }
-    .swot-content ul { padding-left: 1.25rem; }
-    .swot-content li { margin-bottom: 0.4rem; }
-    .swot-content p { margin-bottom: 0.5rem; }
+    .swot-content { color: #aaa; font-size: 0.8rem; line-height: 1.6; }
+    .swot-content ul { padding-left: 1.1rem; }
+    .swot-content li { margin-bottom: 0.35rem; }
+    .swot-content li strong { color: #ff9900; }
+    .swot-content p { margin-bottom: 0.4rem; }
 
     /* ── Lower sections ── */
     .analysis-section {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      padding: 1.5rem;
-      margin-bottom: 1.25rem;
+      background: #0a0a0a;
+      border: 1px solid #333;
+      border-radius: 0;
+      padding: 1.25rem;
+      margin-bottom: 1rem;
     }
     .section-title {
-      font-size: 0.8rem;
+      font-size: 0.75rem;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--muted);
-      font-weight: 600;
-      margin-bottom: 1rem;
-      padding-bottom: 0.75rem;
-      border-bottom: 1px solid var(--border);
+      letter-spacing: 0.1em;
+      color: #ff9900;
+      font-weight: 700;
+      margin-bottom: 0.75rem;
+      padding-bottom: 0.5rem;
+      border-bottom: 1px solid #222;
     }
-    .section-content { font-size: 0.88rem; line-height: 1.75; }
-    .section-content ul { padding-left: 1.25rem; }
-    .section-content li { margin-bottom: 0.5rem; }
-    .section-content p { margin-bottom: 0.75rem; }
-    .section-content strong { color: var(--accent); }
+    .section-content { font-size: 0.8rem; line-height: 1.6; color: #aaa; }
+    .section-content ul { padding-left: 1.1rem; }
+    .section-content li { margin-bottom: 0.4rem; }
+    .section-content p { margin-bottom: 0.6rem; }
+    .section-content strong { color: #ff9900; }
 
     /* Key Questions */
     .question-item {
       display: flex;
-      gap: 1rem;
-      padding: 0.85rem 1rem;
-      background: var(--surface2);
-      border-radius: 8px;
-      margin-bottom: 0.6rem;
+      gap: 0.75rem;
+      padding: 0.6rem 0.75rem;
+      background: #0a0a0a;
+      border-radius: 0;
+      margin-bottom: 0.4rem;
       cursor: pointer;
       transition: background 0.15s;
-      border: 1px solid transparent;
+      border: 1px solid #222;
     }
-    .question-item:hover { background: var(--border); border-color: var(--accent); }
+    .question-item:hover { background: #111; border-color: #ff9900; }
     .question-num {
-      width: 22px; height: 22px; min-width: 22px;
-      background: rgba(91,141,238,0.15);
-      color: var(--accent);
-      border-radius: 50%;
+      width: 20px; height: 20px; min-width: 20px;
+      background: #ff9900;
+      color: #000;
+      border-radius: 0;
       display: flex; align-items: center; justify-content: center;
-      font-size: 0.7rem; font-weight: 700;
+      font-size: 0.65rem; font-weight: 700;
     }
-    .question-text { font-size: 0.88rem; }
+    .question-text { font-size: 0.8rem; color: #aaa; }
 
     /* ── Chat ── */
     #chatSection {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 14px;
+      background: #0a0a0a;
+      border: 1px solid #333;
+      border-radius: 0;
       overflow: hidden;
-      margin-bottom: 2rem;
+      margin-bottom: 1.5rem;
     }
     #chatSection.hidden { display: none; }
     .chat-header {
-      padding: 1rem 1.5rem;
-      border-bottom: 1px solid var(--border);
+      padding: 0.6rem 1rem;
+      border-bottom: 1px solid #333;
       display: flex;
       align-items: center;
       gap: 0.5rem;
+      background: #111;
     }
-    .chat-dot { width: 8px; height: 8px; background: var(--green); border-radius: 50%; }
-    .chat-title { font-weight: 600; font-size: 0.9rem; }
-    .chat-sub { color: var(--muted); font-size: 0.8rem; margin-left: 0.5rem; }
+    .chat-dot { width: 6px; height: 6px; background: #00cc00; border-radius: 50%; }
+    .chat-title { font-weight: 600; font-size: 0.8rem; color: #ff9900; text-transform: uppercase; letter-spacing: 0.08em; }
+    .chat-sub { color: #555; font-size: 0.7rem; margin-left: 0.5rem; }
 
     #chatMessages {
-      padding: 1.25rem 1.5rem;
+      padding: 1rem;
       display: flex;
       flex-direction: column;
-      gap: 1rem;
-      max-height: 500px;
+      gap: 0.75rem;
+      max-height: 400px;
       overflow-y: auto;
     }
     .chat-msg {
       display: flex;
-      gap: 0.75rem;
+      gap: 0.5rem;
       align-items: flex-start;
     }
     .chat-msg.user { flex-direction: row-reverse; }
     .msg-avatar {
-      width: 28px; height: 28px; min-width: 28px;
-      border-radius: 8px;
+      width: 24px; height: 24px; min-width: 24px;
+      border-radius: 0;
       display: flex; align-items: center; justify-content: center;
-      font-size: 0.7rem; font-weight: 700;
+      font-size: 0.6rem; font-weight: 700;
     }
-    .user .msg-avatar { background: var(--accent); color: #fff; }
-    .assistant .msg-avatar { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+    .user .msg-avatar { background: #ff9900; color: #000; }
+    .assistant .msg-avatar { background: #222; color: #666; border: 1px solid #333; }
 
     .msg-bubble {
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 0.75rem 1rem;
-      font-size: 0.88rem;
-      line-height: 1.7;
+      background: #111;
+      border: 1px solid #222;
+      border-radius: 0;
+      padding: 0.6rem 0.75rem;
+      font-size: 0.8rem;
+      line-height: 1.6;
       max-width: 85%;
+      color: #aaa;
     }
-    .user .msg-bubble { background: rgba(91,141,238,0.15); border-color: rgba(91,141,238,0.3); }
-    .msg-bubble ul { padding-left: 1.25rem; }
-    .msg-bubble li { margin-bottom: 0.35rem; }
-    .msg-bubble p { margin-bottom: 0.5rem; }
+    .user .msg-bubble { background: rgba(255,153,0,0.08); border-color: #ff9900; color: #ccc; }
+    .msg-bubble ul { padding-left: 1rem; }
+    .msg-bubble li { margin-bottom: 0.25rem; }
+    .msg-bubble p { margin-bottom: 0.4rem; }
     .msg-bubble p:last-child { margin-bottom: 0; }
-    .msg-bubble strong { color: var(--accent); }
+    .msg-bubble strong { color: #ff9900; }
 
     .chat-input-wrap {
-      padding: 1rem 1.5rem;
-      border-top: 1px solid var(--border);
+      padding: 0.75rem 1rem;
+      border-top: 1px solid #333;
       display: flex;
-      gap: 0.75rem;
+      gap: 0.5rem;
     }
     #chatInput {
       flex: 1;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      color: var(--text);
-      padding: 0.7rem 1rem;
-      font-size: 0.9rem;
+      background: #0a0a0a;
+      border: 1px solid #333;
+      border-radius: 0;
+      color: #ff9900;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.8rem;
       font-family: inherit;
       outline: none;
       transition: border-color 0.2s;
       resize: none;
     }
-    #chatInput:focus { border-color: var(--accent); }
+    #chatInput:focus { border-color: #ff9900; }
     #sendBtn {
-      padding: 0.7rem 1.25rem;
-      background: var(--accent);
-      color: #fff;
+      padding: 0.5rem 1rem;
+      background: #ff9900;
+      color: #000;
       border: none;
-      border-radius: 8px;
-      font-size: 0.85rem;
-      font-weight: 600;
+      border-radius: 0;
+      font-size: 0.75rem;
+      font-weight: 700;
       cursor: pointer;
       font-family: inherit;
-      transition: opacity 0.2s;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
     }
-    #sendBtn:hover { opacity: 0.9; }
-    #sendBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #sendBtn:hover { background: #ffaa22; }
+    #sendBtn:disabled { opacity: 0.4; cursor: not-allowed; }
 
     /* ── Empty state ── */
-    #emptyState {
-      text-align: center;
-      padding: 4rem 2rem;
-      color: var(--muted);
-    }
+    #emptyState { padding: 1rem 0; }
     #emptyState.hidden { display: none; }
-    .empty-icon { font-size: 3rem; margin-bottom: 1rem; opacity: 0.4; }
-    .empty-title { font-size: 1.1rem; font-weight: 600; color: var(--text); margin-bottom: 0.5rem; }
-    .empty-sub { font-size: 0.9rem; }
-    .example-tickers {
-      display: flex;
-      gap: 0.5rem;
-      justify-content: center;
-      flex-wrap: wrap;
-      margin-top: 1.5rem;
-    }
-    .ticker-pill {
-      padding: 0.4rem 0.9rem;
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      font-size: 0.8rem;
-      font-weight: 600;
-      cursor: pointer;
-      transition: border-color 0.2s, background 0.2s;
-      letter-spacing: 0.05em;
-    }
-    .ticker-pill:hover { border-color: var(--accent); background: rgba(91,141,238,0.08); }
 
     /* ── Error ── */
     .error-banner {
-      background: rgba(245,101,101,0.08);
-      border: 1px solid rgba(245,101,101,0.3);
-      border-radius: 10px;
-      padding: 1rem 1.25rem;
-      color: var(--red);
-      font-size: 0.9rem;
+      background: rgba(255,51,51,0.08);
+      border: 1px solid #ff3333;
+      border-radius: 0;
+      padding: 0.6rem 1rem;
+      color: #ff3333;
+      font-size: 0.8rem;
+      margin-bottom: 1rem;
+    }
+
+    /* ── Ticker Marquee ── */
+    .ticker-bar {
+      background: #050505;
+      border-bottom: 1px solid #222;
+      overflow: hidden;
+      white-space: nowrap;
+      font-size: 0.75rem;
+      color: #666;
+      padding: 0.3rem 0;
+    }
+    .ticker-track {
+      display: inline-flex;
+      animation: marquee 25s linear infinite;
+      gap: 2rem;
+    }
+    .ticker-track:hover { animation-play-state: paused; }
+    @keyframes marquee {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+    .ticker-item { display: inline-flex; gap: 0.3rem; align-items: center; cursor: pointer; }
+    .ticker-item:hover { color: #ccc; }
+    .ticker-sym { font-weight: 700; color: #ff9900; }
+    .ticker-up { color: #00cc00; }
+    .ticker-down { color: #ff3333; }
+
+    /* ── Hero ── */
+    .hero {
+      text-align: center;
+      padding: 2rem 1rem 1.5rem;
+    }
+    .hero-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: none;
+      border: 1px solid #333;
+      border-radius: 0;
+      padding: 0.25rem 0.75rem;
+      font-size: 0.65rem;
+      color: #00cc00;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin-bottom: 1rem;
+    }
+    .hero-badge .dot { width: 5px; height: 5px; background: #00cc00; border-radius: 50%; animation: pulse-dot 2s ease-in-out infinite; }
+    @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    .hero h2 {
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+      line-height: 1.2;
+      margin-bottom: 0.5rem;
+      color: #ff9900;
+    }
+    .hero-accent { color: #fff; }
+    .hero p {
+      color: #555;
+      font-size: 0.85rem;
+      max-width: 500px;
+      margin: 0 auto 2rem;
+      line-height: 1.5;
+    }
+
+    /* ── Feature cards ── */
+    .features {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.5rem;
       margin-bottom: 1.5rem;
+    }
+    @media (max-width: 700px) { .features { grid-template-columns: 1fr; } }
+    .feature-card {
+      background: #050505;
+      border: 1px solid #222;
+      border-radius: 0;
+      padding: 1rem;
+      text-align: left;
+    }
+    .feature-icon {
+      font-size: 0.85rem;
+      margin-bottom: 0.5rem;
+      display: none;
+    }
+    .feature-title { font-size: 0.75rem; font-weight: 700; margin-bottom: 0.2rem; color: #ff9900; text-transform: uppercase; letter-spacing: 0.08em; }
+    .feature-desc { font-size: 0.7rem; color: #555; line-height: 1.4; }
+
+    /* ── Stock grid ── */
+    .stock-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.4rem;
+      margin-bottom: 1.5rem;
+    }
+    @media (max-width: 700px) { .stock-grid { grid-template-columns: repeat(2, 1fr); } }
+    .stock-card {
+      background: #050505;
+      border: 1px solid #222;
+      border-radius: 0;
+      padding: 0.75rem;
+      cursor: pointer;
+      transition: border-color 0.15s, background 0.15s;
+      text-align: left;
+    }
+    .stock-card:hover { border-color: #ff9900; background: #0a0a0a; }
+    .stock-ticker {
+      font-size: 0.9rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      margin-bottom: 0.15rem;
+      color: #ff9900;
+    }
+    .stock-name { font-size: 0.65rem; color: #555; }
+    .stock-arrow { float: right; color: #ff9900; font-size: 0.9rem; opacity: 0; transition: opacity 0.15s; margin-top: -1.3rem; }
+    .stock-card:hover .stock-arrow { opacity: 1; }
+
+    /* ── Terminal timestamp ── */
+    .terminal-ts {
+      font-size: 0.65rem;
+      color: #333;
+      text-align: center;
+      margin-bottom: 0.75rem;
+      letter-spacing: 0.1em;
     }
 
     /* Scrollbar */
@@ -398,9 +511,14 @@
 </head>
 <body>
 
+<!-- Ticker Marquee -->
+<div class="ticker-bar">
+  <div class="ticker-track" id="tickerTrack"></div>
+</div>
+
 <header>
-  <div class="logo">📊</div>
-  <h1>SWOT Analyzer <span>— Enter any stock ticker or company name</span></h1>
+  <div class="logo">QUANTUMIQ</div>
+  <h1><span>// SWOT TERMINAL</span></h1>
 </header>
 
 <div class="container">
@@ -408,7 +526,7 @@
   <!-- Search -->
   <div class="search-wrap">
     <div class="search-input-wrap">
-      <span class="search-icon">🔍</span>
+      <span class="search-icon">&gt;</span>
       <input id="tickerInput" type="text" placeholder="Enter ticker (e.g. AAPL, MSFT, TSLA, NVDA...)" autocomplete="off" spellcheck="false" />
     </div>
     <button id="analyzeBtn" onclick="startAnalysis()">Analyze</button>
@@ -425,18 +543,73 @@
 
   <!-- Empty state -->
   <div id="emptyState">
-    <div class="empty-icon">📋</div>
-    <div class="empty-title">SWOT Analysis Tool</div>
-    <div class="empty-sub">Enter a stock ticker above to generate a comprehensive strategic analysis powered by real financial data and Claude AI.</div>
-    <div class="example-tickers">
-      <span class="ticker-pill" onclick="quickAnalyze('AAPL')">AAPL</span>
-      <span class="ticker-pill" onclick="quickAnalyze('MSFT')">MSFT</span>
-      <span class="ticker-pill" onclick="quickAnalyze('GOOGL')">GOOGL</span>
-      <span class="ticker-pill" onclick="quickAnalyze('TSLA')">TSLA</span>
-      <span class="ticker-pill" onclick="quickAnalyze('AMZN')">AMZN</span>
-      <span class="ticker-pill" onclick="quickAnalyze('NVDA')">NVDA</span>
-      <span class="ticker-pill" onclick="quickAnalyze('META')">META</span>
-      <span class="ticker-pill" onclick="quickAnalyze('JPM')">JPM</span>
+    <div class="hero">
+      <div class="hero-badge"><div class="dot"></div> LIVE TERMINAL</div>
+      <h2>Real-Time<br><span class="hero-accent">SWOT Analysis</span></h2>
+      <p>Institutional-grade strategic analysis powered by live Yahoo Finance data and Claude AI. Enter any ticker to begin.</p>
+    </div>
+
+    <div class="features">
+      <div class="feature-card">
+        <div class="feature-icon">📡</div>
+        <div class="feature-title">Live Financial Data</div>
+        <div class="feature-desc">Real-time fundamentals, income statements, balance sheets, analyst ratings, and institutional holdings.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">🧠</div>
+        <div class="feature-title">AI-Powered Analysis</div>
+        <div class="feature-desc">Claude AI generates data-driven SWOT with strategic fit assessment, TOWS matrix, and actionable recommendations.</div>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon">💬</div>
+        <div class="feature-title">Interactive Q&A</div>
+        <div class="feature-desc">Ask follow-up questions with full conversation context. Drill into any aspect of the company's strategy.</div>
+      </div>
+    </div>
+
+    <div class="terminal-ts" id="terminalTs"></div>
+
+    <div class="stock-grid">
+      <div class="stock-card" onclick="quickAnalyze('AAPL')">
+        <div class="stock-ticker">AAPL</div>
+        <div class="stock-name">Apple Inc.</div>
+        <div class="stock-arrow">→</div>
+      </div>
+      <div class="stock-card" onclick="quickAnalyze('MSFT')">
+        <div class="stock-ticker">MSFT</div>
+        <div class="stock-name">Microsoft Corp.</div>
+        <div class="stock-arrow">→</div>
+      </div>
+      <div class="stock-card" onclick="quickAnalyze('GOOGL')">
+        <div class="stock-ticker">GOOGL</div>
+        <div class="stock-name">Alphabet Inc.</div>
+        <div class="stock-arrow">→</div>
+      </div>
+      <div class="stock-card" onclick="quickAnalyze('NVDA')">
+        <div class="stock-ticker">NVDA</div>
+        <div class="stock-name">NVIDIA Corp.</div>
+        <div class="stock-arrow">→</div>
+      </div>
+      <div class="stock-card" onclick="quickAnalyze('TSLA')">
+        <div class="stock-ticker">TSLA</div>
+        <div class="stock-name">Tesla Inc.</div>
+        <div class="stock-arrow">→</div>
+      </div>
+      <div class="stock-card" onclick="quickAnalyze('AMZN')">
+        <div class="stock-ticker">AMZN</div>
+        <div class="stock-name">Amazon.com Inc.</div>
+        <div class="stock-arrow">→</div>
+      </div>
+      <div class="stock-card" onclick="quickAnalyze('META')">
+        <div class="stock-ticker">META</div>
+        <div class="stock-name">Meta Platforms</div>
+        <div class="stock-arrow">→</div>
+      </div>
+      <div class="stock-card" onclick="quickAnalyze('JPM')">
+        <div class="stock-ticker">JPM</div>
+        <div class="stock-name">JPMorgan Chase</div>
+        <div class="stock-arrow">→</div>
+      </div>
     </div>
   </div>
 
@@ -839,6 +1012,46 @@
     this.style.height = "auto";
     this.style.height = Math.min(this.scrollHeight, 120) + "px";
   });
+
+  // ── Ticker marquee ──────────────────────────────────────────────────────
+
+  (function initMarquee() {
+    const tickers = [
+      { sym: "AAPL", price: "259.20", chg: "+1.23%" },
+      { sym: "MSFT", price: "441.50", chg: "+0.87%" },
+      { sym: "GOOGL", price: "176.30", chg: "-0.45%" },
+      { sym: "NVDA", price: "189.31", chg: "+2.14%" },
+      { sym: "TSLA", price: "252.40", chg: "-1.32%" },
+      { sym: "AMZN", price: "198.75", chg: "+0.56%" },
+      { sym: "META", price: "612.80", chg: "+1.78%" },
+      { sym: "JPM", price: "243.10", chg: "+0.34%" },
+      { sym: "BRK-B", price: "524.60", chg: "+0.12%" },
+      { sym: "V", price: "325.40", chg: "+0.67%" },
+      { sym: "UNH", price: "487.20", chg: "-0.89%" },
+      { sym: "XOM", price: "108.50", chg: "-0.23%" },
+    ];
+
+    const track = document.getElementById("tickerTrack");
+    // Duplicate for seamless loop
+    const items = [...tickers, ...tickers];
+    track.innerHTML = items.map(t => {
+      const cls = t.chg.startsWith("+") ? "ticker-up" : "ticker-down";
+      return `<span class="ticker-item" onclick="quickAnalyze('${t.sym}')"><span class="ticker-sym">${t.sym}</span> $${t.price} <span class="${cls}">${t.chg}</span></span>`;
+    }).join("");
+  })();
+
+  // ── Terminal timestamp ──────────────────────────────────────────────────
+
+  (function initTimestamp() {
+    const el = document.getElementById("terminalTs");
+    if (!el) return;
+    function update() {
+      const now = new Date();
+      el.textContent = `QUANTUMIQ TERMINAL // ${now.toLocaleDateString('en-US', {weekday:'short'}).toUpperCase()} ${now.toLocaleDateString('en-US', {month:'short',day:'numeric',year:'numeric'}).toUpperCase()} // ${now.toLocaleTimeString('en-US', {hour12:false})} EST`;
+    }
+    update();
+    setInterval(update, 1000);
+  })();
 </script>
 
 </body>
