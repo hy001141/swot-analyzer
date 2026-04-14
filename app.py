@@ -1,26 +1,35 @@
 """
 SWOT Analysis Web App
-Flask backend with real-time SSE streaming.
+Flask backend with polling-based streaming (works on Render free tier).
 """
 
 import os
 import sys
 import json
-import queue
 import threading
+import time
+import uuid
 
 if sys.platform == "win32":
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-from flask import Flask, render_template, request, Response, jsonify, stream_with_context
+from flask import Flask, render_template, request, jsonify
 import yfinance as yf
 import anthropic
 
 app = Flask(__name__)
 
-# ── Reuse data-gathering logic from swot_analyzer ──────────────────────────
+# ── In-memory stores ─────────────────────────────────────────────────────
+
+# Active analysis jobs: job_id -> { status, text, meta, error, done }
+jobs: dict[str, dict] = {}
+# Conversations for follow-up Q&A: session_id -> [messages]
+conversations: dict[str, list] = {}
+
+
+# ── Data Gathering ───────────────────────────────────────────────────────
 
 def fetch_company_data(ticker: str) -> dict:
     stock = yf.Ticker(ticker)
@@ -174,47 +183,122 @@ Structure your response EXACTLY as follows using these markdown headers:
 Be specific and cite actual numbers (margins, growth rates, ratios) from the data provided."""
 
 
-# ── Conversation store (in-memory, keyed by session) ─────────────────────
+# ── Background worker ────────────────────────────────────────────────────
 
-conversations: dict[str, list] = {}
+def run_analysis_worker(job_id: str, ticker: str, session_id: str):
+    """Run the full analysis in a background thread."""
+    job = jobs[job_id]
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+
+    try:
+        # Step 1: Fetch data
+        job["status"] = "Fetching financial data from Yahoo Finance..."
+        data = fetch_company_data(ticker)
+
+        info = data.get("info", {})
+        has_data = (info.get("longName") or info.get("shortName") or
+                    info.get("symbol") or info.get("regularMarketPrice") or
+                    data.get("price_history_summary"))
+
+        if not has_data:
+            job["error"] = f"Could not fetch data for '{ticker}'. Check the ticker symbol."
+            job["done"] = True
+            return
+
+        if not info.get("longName"):
+            info["longName"] = info.get("shortName") or ticker
+
+        # Send meta
+        job["meta"] = {
+            "name": info.get("longName", ticker),
+            "sector": info.get("sector", ""),
+            "industry": info.get("industry", ""),
+            "marketCap": info.get("marketCap"),
+            "price": info.get("currentPrice") or info.get("regularMarketPrice"),
+            "priceChange": data.get("price_history_summary", {}).get("price_change_1y_pct"),
+        }
+
+        # Step 2: Build summary
+        job["status"] = "Building financial summary..."
+        summary = build_data_summary(data)
+
+        # Step 3: Generate SWOT with Claude
+        job["status"] = "Generating SWOT analysis with Claude AI..."
+        client = anthropic.Anthropic(api_key=api_key)
+
+        with client.messages.stream(
+            model="claude-sonnet-4-20250514",
+            max_tokens=8000,
+            system=SWOT_SYSTEM_PROMPT,
+            messages=[{
+                "role": "user",
+                "content": f"Produce a comprehensive SWOT analysis for {ticker} based on this data:\n\n{summary}"
+            }]
+        ) as stream:
+            for text_chunk in stream.text_stream:
+                job["text"] += text_chunk
+
+        # Store conversation for follow-up
+        conversations[session_id] = [
+            {"role": "user", "content": f"Produce a SWOT analysis for {ticker}. Data:\n\n{summary}"},
+            {"role": "assistant", "content": job["text"]},
+        ]
+
+        job["status"] = ""
+        job["done"] = True
+
+    except Exception as e:
+        job["error"] = str(e)
+        job["done"] = True
 
 
-# ── Routes ────────────────────────────────────────────────────────────────
+def run_chat_worker(job_id: str, session_id: str, question: str):
+    """Run a follow-up chat in a background thread."""
+    job = jobs[job_id]
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+
+    history = conversations.get(session_id, [])
+    if not history:
+        job["error"] = "No analysis found. Run an analysis first."
+        job["done"] = True
+        return
+
+    history.append({"role": "user", "content": question})
+
+    try:
+        client = anthropic.Anthropic(api_key=api_key)
+
+        with client.messages.stream(
+            model="claude-sonnet-4-20250514",
+            max_tokens=3000,
+            system=SWOT_SYSTEM_PROMPT,
+            messages=history
+        ) as stream:
+            for chunk in stream.text_stream:
+                job["text"] += chunk
+
+        history.append({"role": "assistant", "content": job["text"]})
+        conversations[session_id] = history
+        job["done"] = True
+
+    except Exception as e:
+        job["error"] = str(e)
+        job["done"] = True
+
+
+# ── Routes ───────────────────────────────────────────────────────────────
 
 @app.route("/")
 def index():
     return render_template("index.html")
 
 
-@app.route("/api/company-info")
-def company_info():
-    """Quick lookup of company name/sector before full analysis."""
-    ticker = request.args.get("ticker", "").strip().upper()
-    if not ticker:
-        return jsonify({"error": "No ticker provided"}), 400
-    try:
-        stock = yf.Ticker(ticker)
-        info = stock.info
-        name = info.get("longName") or info.get("shortName", "")
-        if not name:
-            return jsonify({"error": f"Ticker '{ticker}' not found"}), 404
-        return jsonify({
-            "name": name,
-            "sector": info.get("sector", ""),
-            "industry": info.get("industry", ""),
-            "country": info.get("country", ""),
-            "marketCap": info.get("marketCap"),
-            "currentPrice": info.get("currentPrice") or info.get("regularMarketPrice"),
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-
-@app.route("/api/analyze")
+@app.route("/api/analyze", methods=["POST"])
 def analyze():
-    """Stream SWOT analysis via Server-Sent Events."""
-    ticker = request.args.get("ticker", "").strip().upper()
-    session_id = request.args.get("session_id", ticker)
+    """Start an analysis job in background, return job_id for polling."""
+    body = request.get_json()
+    ticker = body.get("ticker", "").strip().upper()
+    session_id = body.get("session_id", ticker)
 
     if not ticker:
         return jsonify({"error": "No ticker provided"}), 400
@@ -223,84 +307,45 @@ def analyze():
     if not api_key:
         return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
 
-    def generate():
-        # Step 1: Fetch data
-        yield f"data: {json.dumps({'type': 'status', 'message': 'Fetching financial data from Yahoo Finance...'})}\n\n"
+    job_id = str(uuid.uuid4())
+    jobs[job_id] = {
+        "status": "Starting...",
+        "text": "",
+        "meta": None,
+        "error": None,
+        "done": False,
+        "cursor": 0,  # tracks how much text the client has received
+    }
 
-        try:
-            data = fetch_company_data(ticker)
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-            return
+    thread = threading.Thread(target=run_analysis_worker, args=(job_id, ticker, session_id), daemon=True)
+    thread.start()
 
-        info = data.get("info", {})
-        # Accept if we got any meaningful info at all
-        has_data = info.get("longName") or info.get("shortName") or info.get("symbol") or info.get("regularMarketPrice") or data.get("price_history_summary")
-        if not has_data:
-            yield f"data: {json.dumps({'type': 'error', 'message': f'Could not fetch data for {ticker!r}. Check the ticker symbol and try again.'})}\n\n"
-            return
-        # Fill in name fallbacks
-        if not info.get("longName"):
-            info["longName"] = info.get("shortName") or ticker
+    return jsonify({"job_id": job_id})
 
-        yield f"data: {json.dumps({'type': 'status', 'message': 'Building financial summary...'})}\n\n"
-        summary = build_data_summary(data)
 
-        # Send company metadata to frontend
-        yield f"data: {json.dumps({'type': 'meta', 'name': info.get('longName', ticker), 'sector': info.get('sector',''), 'industry': info.get('industry',''), 'marketCap': info.get('marketCap'), 'price': info.get('currentPrice') or info.get('regularMarketPrice'), 'priceChange': data.get('price_history_summary', {}).get('price_change_1y_pct')})}\n\n"
+@app.route("/api/poll/<job_id>")
+def poll(job_id):
+    """Poll for new text from a running job. Returns only new text since last poll."""
+    job = jobs.get(job_id)
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
 
-        yield f"data: {json.dumps({'type': 'status', 'message': 'Generating SWOT analysis with Claude AI...'})}\n\n"
+    cursor = int(request.args.get("cursor", 0))
+    new_text = job["text"][cursor:]
 
-        # Step 2: Stream Claude response with keepalive pings
-        client = anthropic.Anthropic(api_key=api_key)
-        full_text = ""
-        import time
-        last_ping = time.time()
-
-        try:
-            with client.messages.stream(
-                model="claude-sonnet-4-20250514",
-                max_tokens=8000,
-                system=SWOT_SYSTEM_PROMPT,
-                messages=[{
-                    "role": "user",
-                    "content": f"Produce a comprehensive SWOT analysis for {ticker} based on this data:\n\n{summary}"
-                }]
-            ) as stream:
-                for text_chunk in stream.text_stream:
-                    full_text += text_chunk
-                    yield f"data: {json.dumps({'type': 'chunk', 'text': text_chunk})}\n\n"
-                    # Send keepalive ping every 10 seconds to prevent Render timeout
-                    now = time.time()
-                    if now - last_ping > 10:
-                        yield ": keepalive\n\n"
-                        last_ping = now
-
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-            return
-
-        # Store conversation for follow-up Q&A
-        conversations[session_id] = [
-            {"role": "user", "content": f"Produce a SWOT analysis for {ticker}. Data:\n\n{summary}"},
-            {"role": "assistant", "content": full_text},
-        ]
-
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
-
-    return Response(
-        stream_with_context(generate()),
-        mimetype="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        }
-    )
+    return jsonify({
+        "status": job["status"],
+        "text": new_text,
+        "cursor": len(job["text"]),
+        "meta": job["meta"],
+        "error": job["error"],
+        "done": job["done"],
+    })
 
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
-    """Handle follow-up questions."""
+    """Start a chat job in background, return job_id for polling."""
     body = request.get_json()
     session_id = body.get("session_id", "")
     question = body.get("question", "").strip()
@@ -308,42 +353,23 @@ def chat():
     if not question:
         return jsonify({"error": "No question provided"}), 400
 
-    history = conversations.get(session_id, [])
-    if not history:
-        return jsonify({"error": "No analysis found. Run an analysis first."}), 400
-
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         return jsonify({"error": "ANTHROPIC_API_KEY not set"}), 500
 
-    history.append({"role": "user", "content": question})
+    job_id = str(uuid.uuid4())
+    jobs[job_id] = {
+        "status": "Thinking...",
+        "text": "",
+        "meta": None,
+        "error": None,
+        "done": False,
+    }
 
-    def generate():
-        client = anthropic.Anthropic(api_key=api_key)
-        full_answer = ""
-        try:
-            with client.messages.stream(
-                model="claude-sonnet-4-20250514",
-                max_tokens=3000,
-                system=SWOT_SYSTEM_PROMPT,
-                messages=history
-            ) as stream:
-                for chunk in stream.text_stream:
-                    full_answer += chunk
-                    yield f"data: {json.dumps({'type': 'chunk', 'text': chunk})}\n\n"
-        except Exception as e:
-            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
-            return
+    thread = threading.Thread(target=run_chat_worker, args=(job_id, session_id, question), daemon=True)
+    thread.start()
 
-        history.append({"role": "assistant", "content": full_answer})
-        conversations[session_id] = history
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
-
-    return Response(
-        stream_with_context(generate()),
-        mimetype="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
-    )
+    return jsonify({"job_id": job_id})
 
 
 if __name__ == "__main__":

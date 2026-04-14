@@ -656,69 +656,90 @@
     });
 
     document.getElementById("analyzeBtn").disabled = true;
-    setStatus("Fetching financial data from Yahoo Finance...");
+    setStatus("Starting analysis...");
 
-    const url = `/api/analyze?ticker=${encodeURIComponent(ticker)}&session_id=${SESSION_ID}`;
-    const es = new EventSource(url);
-
-    es.onmessage = (e) => {
-      const msg = JSON.parse(e.data);
-
-      if (msg.type === "status") {
-        setStatus(msg.message);
-      }
-      else if (msg.type === "error") {
-        showError(msg.message);
+    // Start the job
+    fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ticker, session_id: SESSION_ID })
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        showError(data.error);
         document.getElementById("analyzeBtn").disabled = false;
-        es.close();
+        return;
       }
-      else if (msg.type === "meta") {
-        // Company header card
-        document.getElementById("companyName").textContent = msg.name;
-        document.getElementById("companySub").textContent = [msg.sector, msg.industry, msg.country].filter(Boolean).join(" · ");
-
-        const statsEl = document.getElementById("companyStats");
-        statsEl.innerHTML = "";
-
-        if (msg.marketCap) {
-          statsEl.innerHTML += `<div class="stat-item"><div class="stat-label">Market Cap</div><div class="stat-value">${fmtMarketCap(msg.marketCap)}</div></div>`;
-        }
-        if (msg.price) {
-          const sign = msg.priceChange >= 0 ? "+" : "";
-          const cls  = msg.priceChange >= 0 ? "positive" : "negative";
-          statsEl.innerHTML += `<div class="stat-item"><div class="stat-label">Price</div><div class="stat-value">${msg.price.toFixed(2)}</div></div>`;
-          if (msg.priceChange !== undefined) {
-            statsEl.innerHTML += `<div class="stat-item"><div class="stat-label">1Y Return</div><div class="stat-value ${cls}">${sign}${msg.priceChange}%</div></div>`;
-          }
-        }
-
-        document.getElementById("companyCard").classList.add("visible");
-        document.getElementById("swotGrid").style.display = "grid";
-
-        setStatus("Generating SWOT analysis with Claude AI...");
-      }
-      else if (msg.type === "chunk") {
-        accumulatedText += msg.text;
-        renderSections(accumulatedText);
-      }
-      else if (msg.type === "done") {
-        setStatus(null);
-        document.getElementById("analyzeBtn").disabled = false;
-        document.getElementById("chatSection").classList.remove("hidden");
-        es.close();
-      }
-    };
-
-    es.onerror = () => {
-      // Only show error if analysis never completed (no content was rendered)
-      const hasContent = document.getElementById("swotGrid").style.display !== "none";
-      if (!hasContent) {
-        showError("Connection lost. Please try again.");
-      }
-      setStatus(null); // always hide spinner
+      pollJob(data.job_id, 0);
+    })
+    .catch(err => {
+      showError("Failed to start analysis: " + err.message);
       document.getElementById("analyzeBtn").disabled = false;
-      es.close();
-    };
+    });
+  }
+
+  function pollJob(jobId, cursor) {
+    fetch(`/api/poll/${jobId}?cursor=${cursor}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.error && data.done) {
+          showError(data.error);
+          setStatus(null);
+          document.getElementById("analyzeBtn").disabled = false;
+          return;
+        }
+
+        // Update status
+        if (data.status) setStatus(data.status);
+
+        // Show company card
+        if (data.meta && !document.getElementById("companyCard").classList.contains("visible")) {
+          const m = data.meta;
+          document.getElementById("companyName").textContent = m.name;
+          document.getElementById("companySub").textContent = [m.sector, m.industry, m.country].filter(Boolean).join(" · ");
+
+          const statsEl = document.getElementById("companyStats");
+          statsEl.innerHTML = "";
+          if (m.marketCap) {
+            statsEl.innerHTML += `<div class="stat-item"><div class="stat-label">Market Cap</div><div class="stat-value">${fmtMarketCap(m.marketCap)}</div></div>`;
+          }
+          if (m.price) {
+            const sign = (m.priceChange || 0) >= 0 ? "+" : "";
+            const cls  = (m.priceChange || 0) >= 0 ? "positive" : "negative";
+            statsEl.innerHTML += `<div class="stat-item"><div class="stat-label">Price</div><div class="stat-value">${m.price.toFixed(2)}</div></div>`;
+            if (m.priceChange !== undefined && m.priceChange !== null) {
+              statsEl.innerHTML += `<div class="stat-item"><div class="stat-label">1Y Return</div><div class="stat-value ${cls}">${sign}${m.priceChange}%</div></div>`;
+            }
+          }
+          document.getElementById("companyCard").classList.add("visible");
+          document.getElementById("swotGrid").style.display = "grid";
+        }
+
+        // Append new text
+        if (data.text) {
+          accumulatedText += data.text;
+          renderSections(accumulatedText);
+        }
+
+        // Check if done
+        if (data.done) {
+          setStatus(null);
+          document.getElementById("analyzeBtn").disabled = false;
+          renderSections(accumulatedText);
+          if (accumulatedText.length > 100) {
+            document.getElementById("chatSection").classList.remove("hidden");
+          }
+          return;
+        }
+
+        // Poll again in 800ms
+        setTimeout(() => pollJob(jobId, data.cursor), 800);
+      })
+      .catch(err => {
+        // Retry on network hiccup
+        setTimeout(() => pollJob(jobId, cursor), 2000);
+      });
   }
 
   // ── Chat ─────────────────────────────────────────────────────────────────
@@ -751,50 +772,53 @@
 
     appendMessage("user", question);
     const bubble = appendMessage("assistant", "");
-    let answer = "";
 
+    // Start chat job
     fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ session_id: SESSION_ID, question })
-    }).then(res => {
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-
-      function read() {
-        reader.read().then(({ done, value }) => {
-          if (done) {
-            document.getElementById("sendBtn").disabled = false;
-            return;
-          }
-          buffer += decoder.decode(value, { stream: true });
-          const parts = buffer.split("\n\n");
-          buffer = parts.pop();
-          for (const part of parts) {
-            if (part.startsWith("data: ")) {
-              try {
-                const msg = JSON.parse(part.slice(6));
-                if (msg.type === "chunk") {
-                  answer += msg.text;
-                  bubble.innerHTML = marked.parse(answer);
-                  document.getElementById("chatMessages").scrollTop = 9999;
-                }
-                if (msg.type === "done") {
-                  document.getElementById("sendBtn").disabled = false;
-                }
-                if (msg.type === "error") {
-                  bubble.innerHTML = `<span style="color:var(--red)">${msg.message}</span>`;
-                  document.getElementById("sendBtn").disabled = false;
-                }
-              } catch(e) {}
-            }
-          }
-          read();
-        });
+    })
+    .then(r => r.json())
+    .then(data => {
+      if (data.error) {
+        bubble.innerHTML = `<span style="color:var(--red)">${data.error}</span>`;
+        document.getElementById("sendBtn").disabled = false;
+        return;
       }
-      read();
+      pollChat(data.job_id, 0, bubble);
     });
+  }
+
+  function pollChat(jobId, cursor, bubble) {
+    fetch(`/api/poll/${jobId}?cursor=${cursor}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.error && data.done) {
+          bubble.innerHTML = `<span style="color:var(--red)">${data.error}</span>`;
+          document.getElementById("sendBtn").disabled = false;
+          return;
+        }
+
+        if (data.text) {
+          // Get current text from accumulated cursor
+          const fullText = bubble.getAttribute("data-full") || "";
+          const newFull = fullText + data.text;
+          bubble.setAttribute("data-full", newFull);
+          bubble.innerHTML = marked.parse(newFull);
+          document.getElementById("chatMessages").scrollTop = 99999;
+        }
+
+        if (data.done) {
+          document.getElementById("sendBtn").disabled = false;
+          return;
+        }
+
+        setTimeout(() => pollChat(jobId, data.cursor, bubble), 800);
+      })
+      .catch(() => {
+        setTimeout(() => pollChat(jobId, cursor, bubble), 2000);
+      });
   }
 
   // ── Event listeners ──────────────────────────────────────────────────────
