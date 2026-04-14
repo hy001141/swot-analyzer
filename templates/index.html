@@ -504,6 +504,36 @@
       letter-spacing: 0.1em;
     }
 
+    /* ── Comp Table ── */
+    #compSection { display: none; }
+    .comp-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.75rem;
+    }
+    .comp-table th {
+      text-align: right;
+      padding: 0.4rem 0.6rem;
+      border-bottom: 2px solid #ff9900;
+      color: #ff9900;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .comp-table th:first-child { text-align: left; }
+    .comp-table td {
+      text-align: right;
+      padding: 0.35rem 0.6rem;
+      border-bottom: 1px solid #1a1a1a;
+      color: #bbb;
+    }
+    .comp-table td:first-child {
+      text-align: left;
+      color: #ff9900;
+      font-weight: 600;
+    }
+    .comp-table tr:hover td { background: #0a0a0a; }
+
     /* Scrollbar */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -685,6 +715,14 @@
     <div id="questionsContent"></div>
   </div>
 
+  <!-- Comp Table -->
+  <div id="compSection" class="analysis-section">
+    <div class="section-title">Comparable Company Analysis</div>
+    <div style="overflow-x:auto;">
+      <table class="comp-table" id="compTable"></table>
+    </div>
+  </div>
+
   <!-- Chat -->
   <div id="chatSection" class="hidden">
     <div class="chat-header">
@@ -749,9 +787,45 @@
   // ── Parse sections from markdown ────────────────────────────────────────
 
   function extractSection(text, header) {
-    const regex = new RegExp(`## ${header}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`, 'i');
+    // Match "## Header" followed by anything (even extra text on same line like "## Strengths = What protects...")
+    const regex = new RegExp(`## ${header}[^\\n]*\\n([\\s\\S]*?)(?=\\n## |$)`, 'i');
     const m = text.match(regex);
     return m ? m[1].trim() : null;
+  }
+
+  function renderCompTable(rawTable) {
+    // Parse the plain text comp table into an HTML table
+    const lines = rawTable.split('\n').filter(l => l.trim().length > 0);
+    if (lines.length < 3) return;
+
+    const tableEl = document.getElementById("compTable");
+    let html = "";
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i].trim();
+      // Skip separator lines
+      if (line.match(/^[-─]+$/)) continue;
+      // Skip the title line
+      if (line.startsWith("COMPARABLE")) continue;
+
+      const cells = line.split(/\s{2,}/);  // split on 2+ spaces
+      if (cells.length < 2) continue;
+
+      if (i <= 2 && (line.includes("Metric") || cells[0] === "Metric" || !html)) {
+        // Header row
+        html += "<thead><tr>";
+        cells.forEach(c => html += `<th>${c.trim()}</th>`);
+        html += "</tr></thead><tbody>";
+      } else {
+        html += "<tr>";
+        cells.forEach(c => html += `<td>${c.trim()}</td>`);
+        html += "</tr>";
+      }
+    }
+
+    html += "</tbody>";
+    tableEl.innerHTML = html;
+    document.getElementById("compSection").style.display = "block";
   }
 
   function renderSections(text) {
@@ -832,6 +906,7 @@
     document.getElementById("towsSection").style.display = "none";
     document.getElementById("recoSection").style.display = "none";
     document.getElementById("questionsSection").style.display = "none";
+    document.getElementById("compSection").style.display = "none";
     document.getElementById("chatSection").classList.add("hidden");
     document.getElementById("chatMessages").innerHTML = "";
 
@@ -898,6 +973,11 @@
           }
           document.getElementById("companyCard").classList.add("visible");
           document.getElementById("swotGrid").style.display = "grid";
+
+          // Render comp table if available
+          if (m.comp_table) {
+            renderCompTable(m.comp_table);
+          }
         }
 
         // Append new text
@@ -911,11 +991,13 @@
         if (data.done) {
           const hasSwot = accumulatedText.includes("## Strengths") || accumulatedText.includes("## Weaknesses");
           // Only consider complete if we have the LAST section (Three Key Questions) with actual content after it
+          const hasAllFour = /## Strengths/i.test(accumulatedText) && /## Weaknesses/i.test(accumulatedText) && /## Opportunities/i.test(accumulatedText) && /## Threats/i.test(accumulatedText);
           const hasQuestions = accumulatedText.includes("## Three Key Questions");
-          const isComplete = hasSwot && hasQuestions && accumulatedText.split("## Three Key Questions")[1].trim().length > 50;
+          const questionsContent = hasQuestions ? accumulatedText.split("## Three Key Questions")[1].trim() : "";
+          const isComplete = hasAllFour && hasQuestions && questionsContent.length > 100;
 
           // Auto-retry if partial (has some SWOT but incomplete)
-          if (hasSwot && !isComplete && retryCount < MAX_RETRIES) {
+          if (hasAllFour && !isComplete && retryCount < MAX_RETRIES) {
             retryCount++;
             accumulatedText = "";
             // Hide partial results during retry

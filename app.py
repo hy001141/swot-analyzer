@@ -233,7 +233,17 @@ RULES:
 - Cross-reference sources: if insiders are buying but short interest is rising, call that out. If the company claims AI leadership but a competitor's patent filings suggest otherwise, flag it. If management guidance is aggressive but analyst estimates are flat, explain the disconnect.
 - Be specific to THIS company. No generic points.
 - Write like you're briefing a PM who will challenge every point. Be direct, be specific, defend your reasoning.
-- This analysis should be IMPOSSIBLE to produce from Yahoo Finance alone. If it reads like a Yahoo Finance summary, you've failed."""
+- This analysis should be IMPOSSIBLE to produce from Yahoo Finance alone. If it reads like a Yahoo Finance summary, you've failed.
+
+CRITICAL — USE EXACTLY THESE HEADERS (no extra text after the header):
+## Strengths
+## Weaknesses
+## Opportunities
+## Threats
+## Strategic Fit Assessment
+## TOWS Matrix
+## Recommendations
+## Three Key Questions"""
 
 
 # ── Background worker ────────────────────────────────────────────────────
