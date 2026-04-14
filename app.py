@@ -247,7 +247,7 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
         summary = build_data_summary(data)
 
         # Step 3: Generate SWOT with Claude
-        job["status"] = "Generating SWOT analysis with Claude AI..."
+        job["status"] = "Generating SWOT analysis with QuantumIQ AI..."
         client = anthropic.Anthropic(api_key=api_key)
 
         with client.messages.stream(
