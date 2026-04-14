@@ -257,7 +257,7 @@ def analyze():
 
         try:
             with client.messages.stream(
-                model="claude-opus-4-5",
+                model="claude-sonnet-4-20250514",
                 max_tokens=8000,
                 system=SWOT_SYSTEM_PROMPT,
                 messages=[{
@@ -316,7 +316,7 @@ def chat():
         full_answer = ""
         try:
             with client.messages.stream(
-                model="claude-opus-4-5",
+                model="claude-sonnet-4-20250514",
                 max_tokens=3000,
                 system=SWOT_SYSTEM_PROMPT,
                 messages=history
