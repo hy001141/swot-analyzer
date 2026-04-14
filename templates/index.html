@@ -900,9 +900,13 @@
         if (data.done) {
           setStatus(null);
           document.getElementById("analyzeBtn").disabled = false;
-          renderSections(accumulatedText);
           if (accumulatedText.length > 100) {
+            renderSections(accumulatedText);
             document.getElementById("chatSection").classList.remove("hidden");
+          } else if (data.error) {
+            showError(data.error);
+          } else {
+            showError("Analysis failed — not enough financial data available for this ticker.");
           }
           return;
         }
