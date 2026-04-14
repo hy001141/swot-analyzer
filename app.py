@@ -268,10 +268,20 @@ def run_chat_worker(job_id: str, session_id: str, question: str):
     try:
         client = anthropic.Anthropic(api_key=api_key)
 
+        CHAT_PROMPT = """You are a sharp, direct equity research analyst answering follow-up questions.
+Rules:
+- Be direct and concise. No fluff, no filler.
+- Write like a human analyst would in a quick Slack message, not a research report.
+- Use short paragraphs (2-3 sentences max each).
+- Total response should be 150-300 words max.
+- Use numbers and data when relevant but don't over-explain.
+- No headers or bullet points unless truly necessary.
+- Never start with "Great question" or similar."""
+
         with client.messages.stream(
             model="claude-sonnet-4-20250514",
-            max_tokens=3000,
-            system=SWOT_SYSTEM_PROMPT,
+            max_tokens=800,
+            system=CHAT_PROMPT,
             messages=history
         ) as stream:
             for chunk in stream.text_stream:
