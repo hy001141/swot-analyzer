@@ -43,12 +43,15 @@ def fetch_company_data(ticker: str) -> dict:
     # fast_info is more reliable on cloud servers
     try:
         fi = stock.fast_info
-        data["fast_info"] = {
-            "marketCap": getattr(fi, "market_cap", None),
-            "shares": getattr(fi, "shares", None),
-            "lastPrice": getattr(fi, "last_price", None),
-            "previousClose": getattr(fi, "previous_close", None),
-        }
+        data["fast_info"] = {}
+        try: data["fast_info"]["marketCap"] = fi.market_cap
+        except: pass
+        try: data["fast_info"]["shares"] = fi.shares
+        except: pass
+        try: data["fast_info"]["lastPrice"] = fi.last_price
+        except: pass
+        try: data["fast_info"]["previousClose"] = fi.previous_close
+        except: pass
     except Exception:
         data["fast_info"] = {}
 
