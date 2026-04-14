@@ -265,21 +265,36 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
         job["status"] = "Building financial summary..."
         summary = build_data_summary(data)
 
-        # Step 3: Generate SWOT with Claude
+        # Step 3: Generate SWOT with Claude (retry on overload)
         job["status"] = "Generating SWOT analysis with QuantumIQ AI..."
         client = anthropic.Anthropic(api_key=api_key)
+        max_api_retries = 3
 
-        with client.messages.stream(
-            model="claude-sonnet-4-20250514",
-            max_tokens=8000,
-            system=SWOT_SYSTEM_PROMPT,
-            messages=[{
-                "role": "user",
-                "content": f"Produce a comprehensive SWOT analysis for {ticker} based on this data:\n\n{summary}"
-            }]
-        ) as stream:
-            for text_chunk in stream.text_stream:
-                job["text"] += text_chunk
+        for attempt in range(max_api_retries):
+            try:
+                job["text"] = ""  # reset on retry
+                with client.messages.stream(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=8000,
+                    system=SWOT_SYSTEM_PROMPT,
+                    messages=[{
+                        "role": "user",
+                        "content": f"Produce a comprehensive SWOT analysis for {ticker} based on this data:\n\n{summary}"
+                }]
+                ) as stream:
+                    for text_chunk in stream.text_stream:
+                        job["text"] += text_chunk
+                break  # success, exit retry loop
+
+            except Exception as api_err:
+                is_overloaded = "overloaded" in str(api_err).lower() or "529" in str(api_err)
+                if is_overloaded and attempt < max_api_retries - 1:
+                    import time
+                    job["status"] = f"Server busy, retrying ({attempt + 2}/{max_api_retries})..."
+                    time.sleep(3)
+                    continue
+                else:
+                    raise api_err
 
         # Store conversation for follow-up
         conversations[session_id] = [
@@ -289,7 +304,12 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
 
     except Exception as e:
         print(f"[ERROR] Analysis failed for {ticker}: {e}", flush=True)
-        job["error"] = str(e)
+        # Clean up error message for user
+        err_str = str(e)
+        if "overloaded" in err_str.lower():
+            job["error"] = "AI servers are temporarily overloaded. Please try again in a few seconds."
+        else:
+            job["error"] = "Analysis failed. Please try again."
     finally:
         # Always store conversation if we have any text (even partial)
         if job["text"]:
