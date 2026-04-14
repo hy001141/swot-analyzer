@@ -17,20 +17,13 @@ if sys.platform == "win32":
 from flask import Flask, render_template, request, Response, jsonify, stream_with_context
 import yfinance as yf
 import anthropic
-import requests
-
-# Set a browser-like user agent so Yahoo Finance doesn't block cloud server IPs
-session = requests.Session()
-session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-})
 
 app = Flask(__name__)
 
 # ── Reuse data-gathering logic from swot_analyzer ──────────────────────────
 
 def fetch_company_data(ticker: str) -> dict:
-    stock = yf.Ticker(ticker, session=session)
+    stock = yf.Ticker(ticker)
     data = {}
 
     try:
