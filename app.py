@@ -251,9 +251,11 @@ def analyze():
 
         yield f"data: {json.dumps({'type': 'status', 'message': 'Generating SWOT analysis with Claude AI...'})}\n\n"
 
-        # Step 2: Stream Claude response
+        # Step 2: Stream Claude response with keepalive pings
         client = anthropic.Anthropic(api_key=api_key)
         full_text = ""
+        import time
+        last_ping = time.time()
 
         try:
             with client.messages.stream(
@@ -268,6 +270,11 @@ def analyze():
                 for text_chunk in stream.text_stream:
                     full_text += text_chunk
                     yield f"data: {json.dumps({'type': 'chunk', 'text': text_chunk})}\n\n"
+                    # Send keepalive ping every 10 seconds to prevent Render timeout
+                    now = time.time()
+                    if now - last_ping > 10:
+                        yield ": keepalive\n\n"
+                        last_ping = now
 
         except Exception as e:
             yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
