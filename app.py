@@ -208,14 +208,20 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
         if not info.get("longName"):
             info["longName"] = info.get("shortName") or ticker
 
-        # Send meta
+        # Send meta — try multiple price fields as fallback
+        price = (info.get("currentPrice") or info.get("regularMarketPrice")
+                 or info.get("regularMarketOpen") or info.get("previousClose"))
+        ph = data.get("price_history_summary", {})
+        if not price and ph.get("current_price"):
+            price = ph["current_price"]
+
         job["meta"] = {
             "name": info.get("longName", ticker),
             "sector": info.get("sector", ""),
             "industry": info.get("industry", ""),
             "marketCap": info.get("marketCap"),
-            "price": info.get("currentPrice") or info.get("regularMarketPrice"),
-            "priceChange": data.get("price_history_summary", {}).get("price_change_1y_pct"),
+            "price": price,
+            "priceChange": ph.get("price_change_1y_pct"),
         }
 
         # Step 2: Build summary
