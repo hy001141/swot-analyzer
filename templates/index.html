@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>SWOT Analyzer</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    /* ── Reset & Base ── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0d0f14;
+      --surface: #161a23;
+      --surface2: #1e2330;
+      --border: #2a2f3e;
+      --text: #e8eaf0;
+      --muted: #8b90a0;
+      --accent: #5b8dee;
+      --green: #3ecf8e;
+      --red: #f56565;
+      --amber: #f6ad55;
+      --blue: #63b3ed;
+      --green-dim: rgba(62,207,142,0.08);
+      --red-dim: rgba(245,101,101,0.08);
+      --amber-dim: rgba(246,173,85,0.08);
+      --blue-dim: rgba(99,179,237,0.08);
+    }
+    html { font-size: 15px; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+
+    /* ── Header ── */
+    header {
+      padding: 2rem 2rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+    .logo {
+      width: 36px; height: 36px;
+      background: linear-gradient(135deg, var(--accent), #9b5de5);
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.1rem;
+    }
+    header h1 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.02em; }
+    header span { color: var(--muted); font-size: 0.85rem; margin-left: 0.5rem; font-weight: 400; }
+
+    /* ── Layout ── */
+    .container { max-width: 1100px; margin: 0 auto; padding: 2rem; }
+
+    /* ── Search ── */
+    .search-wrap {
+      display: flex;
+      gap: 0.75rem;
+      margin-bottom: 2.5rem;
+    }
+    .search-input-wrap {
+      position: relative;
+      flex: 1;
+    }
+    .search-icon {
+      position: absolute;
+      left: 1rem;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+      font-size: 1rem;
+      pointer-events: none;
+    }
+    #tickerInput {
+      width: 100%;
+      padding: 0.875rem 1rem 0.875rem 2.75rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      font-size: 1rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+      letter-spacing: 0.02em;
+    }
+    #tickerInput:focus { border-color: var(--accent); }
+    #tickerInput::placeholder { color: var(--muted); letter-spacing: 0; }
+
+    #analyzeBtn {
+      padding: 0.875rem 1.75rem;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+      white-space: nowrap;
+      font-family: inherit;
+    }
+    #analyzeBtn:hover { opacity: 0.9; }
+    #analyzeBtn:active { transform: scale(0.98); }
+    #analyzeBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Status banner ── */
+    #statusBanner {
+      display: none;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.25rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      color: var(--muted);
+      font-size: 0.9rem;
+    }
+    #statusBanner.hidden { display: none; }
+    .spinner {
+      width: 16px; height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Company header card ── */
+    #companyCard {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+      display: none;
+    }
+    #companyCard.visible { display: block; }
+    .company-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+    .company-name { font-size: 1.5rem; font-weight: 700; letter-spacing: -0.02em; }
+    .company-sub { color: var(--muted); font-size: 0.9rem; margin-top: 0.25rem; }
+    .company-stats {
+      display: flex;
+      gap: 2rem;
+      flex-wrap: wrap;
+    }
+    .stat-item { text-align: right; }
+    .stat-label { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .stat-value { font-size: 1.1rem; font-weight: 600; margin-top: 0.1rem; }
+    .stat-value.positive { color: var(--green); }
+    .stat-value.negative { color: var(--red); }
+
+    /* ── SWOT Grid ── */
+    #swotGrid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+      margin-bottom: 2rem;
+    }
+    @media (max-width: 700px) { #swotGrid { grid-template-columns: 1fr; } }
+
+    .swot-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.5rem;
+      min-height: 200px;
+    }
+    .swot-card.s { border-top: 3px solid var(--green); background: linear-gradient(180deg, var(--green-dim) 0%, var(--surface) 80px); }
+    .swot-card.w { border-top: 3px solid var(--red);   background: linear-gradient(180deg, var(--red-dim)   0%, var(--surface) 80px); }
+    .swot-card.o { border-top: 3px solid var(--blue);  background: linear-gradient(180deg, var(--blue-dim)  0%, var(--surface) 80px); }
+    .swot-card.t { border-top: 3px solid var(--amber); background: linear-gradient(180deg, var(--amber-dim) 0%, var(--surface) 80px); }
+
+    .swot-header {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-bottom: 1rem;
+    }
+    .swot-badge {
+      width: 28px; height: 28px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; font-size: 0.8rem;
+    }
+    .s .swot-badge { background: rgba(62,207,142,0.15); color: var(--green); }
+    .w .swot-badge { background: rgba(245,101,101,0.15); color: var(--red); }
+    .o .swot-badge { background: rgba(99,179,237,0.15);  color: var(--blue); }
+    .t .swot-badge { background: rgba(246,173,85,0.15);  color: var(--amber); }
+
+    .swot-title { font-weight: 700; font-size: 1rem; }
+    .swot-subtitle { font-size: 0.75rem; color: var(--muted); margin-left: auto; }
+
+    .swot-content { color: var(--text); font-size: 0.88rem; line-height: 1.7; }
+    .swot-content ul { padding-left: 1.25rem; }
+    .swot-content li { margin-bottom: 0.4rem; }
+    .swot-content p { margin-bottom: 0.5rem; }
+
+    /* ── Lower sections ── */
+    .analysis-section {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.5rem;
+      margin-bottom: 1.25rem;
+    }
+    .section-title {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      font-weight: 600;
+      margin-bottom: 1rem;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+    .section-content { font-size: 0.88rem; line-height: 1.75; }
+    .section-content ul { padding-left: 1.25rem; }
+    .section-content li { margin-bottom: 0.5rem; }
+    .section-content p { margin-bottom: 0.75rem; }
+    .section-content strong { color: var(--accent); }
+
+    /* Key Questions */
+    .question-item {
+      display: flex;
+      gap: 1rem;
+      padding: 0.85rem 1rem;
+      background: var(--surface2);
+      border-radius: 8px;
+      margin-bottom: 0.6rem;
+      cursor: pointer;
+      transition: background 0.15s;
+      border: 1px solid transparent;
+    }
+    .question-item:hover { background: var(--border); border-color: var(--accent); }
+    .question-num {
+      width: 22px; height: 22px; min-width: 22px;
+      background: rgba(91,141,238,0.15);
+      color: var(--accent);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem; font-weight: 700;
+    }
+    .question-text { font-size: 0.88rem; }
+
+    /* ── Chat ── */
+    #chatSection {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      overflow: hidden;
+      margin-bottom: 2rem;
+    }
+    #chatSection.hidden { display: none; }
+    .chat-header {
+      padding: 1rem 1.5rem;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .chat-dot { width: 8px; height: 8px; background: var(--green); border-radius: 50%; }
+    .chat-title { font-weight: 600; font-size: 0.9rem; }
+    .chat-sub { color: var(--muted); font-size: 0.8rem; margin-left: 0.5rem; }
+
+    #chatMessages {
+      padding: 1.25rem 1.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    .chat-msg {
+      display: flex;
+      gap: 0.75rem;
+      align-items: flex-start;
+    }
+    .chat-msg.user { flex-direction: row-reverse; }
+    .msg-avatar {
+      width: 28px; height: 28px; min-width: 28px;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 0.7rem; font-weight: 700;
+    }
+    .user .msg-avatar { background: var(--accent); color: #fff; }
+    .assistant .msg-avatar { background: var(--surface2); color: var(--muted); border: 1px solid var(--border); }
+
+    .msg-bubble {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.75rem 1rem;
+      font-size: 0.88rem;
+      line-height: 1.7;
+      max-width: 85%;
+    }
+    .user .msg-bubble { background: rgba(91,141,238,0.15); border-color: rgba(91,141,238,0.3); }
+    .msg-bubble ul { padding-left: 1.25rem; }
+    .msg-bubble li { margin-bottom: 0.35rem; }
+    .msg-bubble p { margin-bottom: 0.5rem; }
+    .msg-bubble p:last-child { margin-bottom: 0; }
+    .msg-bubble strong { color: var(--accent); }
+
+    .chat-input-wrap {
+      padding: 1rem 1.5rem;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 0.75rem;
+    }
+    #chatInput {
+      flex: 1;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 0.7rem 1rem;
+      font-size: 0.9rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+      resize: none;
+    }
+    #chatInput:focus { border-color: var(--accent); }
+    #sendBtn {
+      padding: 0.7rem 1.25rem;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      transition: opacity 0.2s;
+    }
+    #sendBtn:hover { opacity: 0.9; }
+    #sendBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* ── Empty state ── */
+    #emptyState {
+      text-align: center;
+      padding: 4rem 2rem;
+      color: var(--muted);
+    }
+    #emptyState.hidden { display: none; }
+    .empty-icon { font-size: 3rem; margin-bottom: 1rem; opacity: 0.4; }
+    .empty-title { font-size: 1.1rem; font-weight: 600; color: var(--text); margin-bottom: 0.5rem; }
+    .empty-sub { font-size: 0.9rem; }
+    .example-tickers {
+      display: flex;
+      gap: 0.5rem;
+      justify-content: center;
+      flex-wrap: wrap;
+      margin-top: 1.5rem;
+    }
+    .ticker-pill {
+      padding: 0.4rem 0.9rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+      letter-spacing: 0.05em;
+    }
+    .ticker-pill:hover { border-color: var(--accent); background: rgba(91,141,238,0.08); }
+
+    /* ── Error ── */
+    .error-banner {
+      background: rgba(245,101,101,0.08);
+      border: 1px solid rgba(245,101,101,0.3);
+      border-radius: 10px;
+      padding: 1rem 1.25rem;
+      color: var(--red);
+      font-size: 0.9rem;
+      margin-bottom: 1.5rem;
+    }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">📊</div>
+  <h1>SWOT Analyzer <span>— Enter any stock ticker or company name</span></h1>
+</header>
+
+<div class="container">
+
+  <!-- Search -->
+  <div class="search-wrap">
+    <div class="search-input-wrap">
+      <span class="search-icon">🔍</span>
+      <input id="tickerInput" type="text" placeholder="Enter ticker (e.g. AAPL, MSFT, TSLA, NVDA...)" autocomplete="off" spellcheck="false" />
+    </div>
+    <button id="analyzeBtn" onclick="startAnalysis()">Analyze</button>
+  </div>
+
+  <!-- Status -->
+  <div id="statusBanner" class="hidden">
+    <div class="spinner"></div>
+    <span id="statusText">Loading...</span>
+  </div>
+
+  <!-- Error -->
+  <div id="errorBanner" class="error-banner" style="display:none;"></div>
+
+  <!-- Empty state -->
+  <div id="emptyState">
+    <div class="empty-icon">📋</div>
+    <div class="empty-title">SWOT Analysis Tool</div>
+    <div class="empty-sub">Enter a stock ticker above to generate a comprehensive strategic analysis powered by real financial data and Claude AI.</div>
+    <div class="example-tickers">
+      <span class="ticker-pill" onclick="quickAnalyze('AAPL')">AAPL</span>
+      <span class="ticker-pill" onclick="quickAnalyze('MSFT')">MSFT</span>
+      <span class="ticker-pill" onclick="quickAnalyze('GOOGL')">GOOGL</span>
+      <span class="ticker-pill" onclick="quickAnalyze('TSLA')">TSLA</span>
+      <span class="ticker-pill" onclick="quickAnalyze('AMZN')">AMZN</span>
+      <span class="ticker-pill" onclick="quickAnalyze('NVDA')">NVDA</span>
+      <span class="ticker-pill" onclick="quickAnalyze('META')">META</span>
+      <span class="ticker-pill" onclick="quickAnalyze('JPM')">JPM</span>
+    </div>
+  </div>
+
+  <!-- Company Card -->
+  <div id="companyCard">
+    <div class="company-top">
+      <div>
+        <div class="company-name" id="companyName"></div>
+        <div class="company-sub" id="companySub"></div>
+      </div>
+      <div class="company-stats" id="companyStats"></div>
+    </div>
+  </div>
+
+  <!-- SWOT Grid -->
+  <div id="swotGrid" style="display:none;">
+    <div class="swot-card s">
+      <div class="swot-header">
+        <div class="swot-badge">S</div>
+        <div class="swot-title">Strengths</div>
+        <div class="swot-subtitle">Internal · Positive</div>
+      </div>
+      <div class="swot-content" id="strengthsContent"><span style="color:var(--muted)">Generating...</span></div>
+    </div>
+    <div class="swot-card w">
+      <div class="swot-header">
+        <div class="swot-badge">W</div>
+        <div class="swot-title">Weaknesses</div>
+        <div class="swot-subtitle">Internal · Negative</div>
+      </div>
+      <div class="swot-content" id="weaknessesContent"><span style="color:var(--muted)">Generating...</span></div>
+    </div>
+    <div class="swot-card o">
+      <div class="swot-header">
+        <div class="swot-badge">O</div>
+        <div class="swot-title">Opportunities</div>
+        <div class="swot-subtitle">External · Positive</div>
+      </div>
+      <div class="swot-content" id="opportunitiesContent"><span style="color:var(--muted)">Generating...</span></div>
+    </div>
+    <div class="swot-card t">
+      <div class="swot-header">
+        <div class="swot-badge">T</div>
+        <div class="swot-title">Threats</div>
+        <div class="swot-subtitle">External · Negative</div>
+      </div>
+      <div class="swot-content" id="threatsContent"><span style="color:var(--muted)">Generating...</span></div>
+    </div>
+  </div>
+
+  <!-- Strategic Fit -->
+  <div id="strategicSection" class="analysis-section" style="display:none;">
+    <div class="section-title">Strategic Fit Assessment</div>
+    <div class="section-content" id="strategicContent"></div>
+  </div>
+
+  <!-- TOWS Matrix -->
+  <div id="towsSection" class="analysis-section" style="display:none;">
+    <div class="section-title">TOWS Matrix — Strategic Options</div>
+    <div class="section-content" id="towsContent"></div>
+  </div>
+
+  <!-- Recommendations -->
+  <div id="recoSection" class="analysis-section" style="display:none;">
+    <div class="section-title">Recommendations</div>
+    <div class="section-content" id="recoContent"></div>
+  </div>
+
+  <!-- Key Questions -->
+  <div id="questionsSection" class="analysis-section" style="display:none;">
+    <div class="section-title">Three Key Questions</div>
+    <div id="questionsContent"></div>
+  </div>
+
+  <!-- Chat -->
+  <div id="chatSection" class="hidden">
+    <div class="chat-header">
+      <div class="chat-dot"></div>
+      <div class="chat-title">Ask a Follow-up Question</div>
+      <div class="chat-sub">Full context retained</div>
+    </div>
+    <div id="chatMessages"></div>
+    <div class="chat-input-wrap">
+      <textarea id="chatInput" rows="1" placeholder="Ask anything about this company's strategy, financials, or competitive position..."></textarea>
+      <button id="sendBtn" onclick="sendChat()">Send</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  const SESSION_ID = Math.random().toString(36).slice(2);
+  let currentTicker = "";
+  let accumulatedText = "";
+
+  // ── Helpers ─────────────────────────────────────────────────────────────
+
+  function fmtMarketCap(v) {
+    if (!v) return "N/A";
+    if (v >= 1e12) return `$${(v/1e12).toFixed(2)}T`;
+    if (v >= 1e9)  return `$${(v/1e9).toFixed(2)}B`;
+    if (v >= 1e6)  return `$${(v/1e6).toFixed(1)}M`;
+    return `$${v.toLocaleString()}`;
+  }
+
+  function setStatus(msg) {
+    const b = document.getElementById("statusBanner");
+    if (msg) {
+      b.classList.remove("hidden");
+      document.getElementById("statusText").textContent = msg;
+    } else {
+      b.classList.add("hidden");
+    }
+  }
+
+  function showError(msg) {
+    const el = document.getElementById("errorBanner");
+    el.textContent = "Error: " + msg;
+    el.style.display = "block";
+    setStatus(null);
+  }
+
+  function hideError() {
+    document.getElementById("errorBanner").style.display = "none";
+  }
+
+  // ── Parse sections from markdown ────────────────────────────────────────
+
+  function extractSection(text, header) {
+    const regex = new RegExp(`## ${header}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`, 'i');
+    const m = text.match(regex);
+    return m ? m[1].trim() : null;
+  }
+
+  function renderSections(text) {
+    const sections = [
+      { id: "strengthsContent",    header: "Strengths" },
+      { id: "weaknessesContent",   header: "Weaknesses" },
+      { id: "opportunitiesContent",header: "Opportunities" },
+      { id: "threatsContent",      header: "Threats" },
+    ];
+
+    for (const s of sections) {
+      const content = extractSection(text, s.header);
+      if (content) {
+        document.getElementById(s.id).innerHTML = marked.parse(content);
+      }
+    }
+
+    // Strategic fit
+    const sf = extractSection(text, "Strategic Fit Assessment");
+    if (sf) {
+      document.getElementById("strategicContent").innerHTML = marked.parse(sf);
+      document.getElementById("strategicSection").style.display = "block";
+    }
+
+    // TOWS
+    const tows = extractSection(text, "TOWS Matrix");
+    if (tows) {
+      document.getElementById("towsContent").innerHTML = marked.parse(tows);
+      document.getElementById("towsSection").style.display = "block";
+    }
+
+    // Recommendations
+    const reco = extractSection(text, "Recommendations");
+    if (reco) {
+      document.getElementById("recoContent").innerHTML = marked.parse(reco);
+      document.getElementById("recoSection").style.display = "block";
+    }
+
+    // Key Questions — render as clickable pills
+    const questions = extractSection(text, "Three Key Questions");
+    if (questions) {
+      const lines = questions.split('\n').filter(l => l.trim().match(/^\d+\./));
+      const container = document.getElementById("questionsContent");
+      container.innerHTML = "";
+      lines.forEach((line, i) => {
+        const q = line.replace(/^\d+\.\s*/, '').trim();
+        const el = document.createElement("div");
+        el.className = "question-item";
+        el.innerHTML = `<div class="question-num">${i+1}</div><div class="question-text">${q}</div>`;
+        el.onclick = () => { document.getElementById("chatInput").value = q; document.getElementById("chatInput").focus(); };
+        container.appendChild(el);
+      });
+      document.getElementById("questionsSection").style.display = "block";
+    }
+  }
+
+  // ── Main analysis ────────────────────────────────────────────────────────
+
+  function quickAnalyze(ticker) {
+    document.getElementById("tickerInput").value = ticker;
+    startAnalysis();
+  }
+
+  function startAnalysis() {
+    const ticker = document.getElementById("tickerInput").value.trim().toUpperCase();
+    if (!ticker) return;
+
+    currentTicker = ticker;
+    accumulatedText = "";
+    hideError();
+
+    // Hide/reset UI
+    document.getElementById("emptyState").classList.add("hidden");
+    document.getElementById("companyCard").classList.remove("visible");
+    document.getElementById("swotGrid").style.display = "none";
+    document.getElementById("strategicSection").style.display = "none";
+    document.getElementById("towsSection").style.display = "none";
+    document.getElementById("recoSection").style.display = "none";
+    document.getElementById("questionsSection").style.display = "none";
+    document.getElementById("chatSection").classList.add("hidden");
+    document.getElementById("chatMessages").innerHTML = "";
+
+    ["strengthsContent","weaknessesContent","opportunitiesContent","threatsContent"].forEach(id => {
+      document.getElementById(id).innerHTML = '<span style="color:var(--muted)">Generating...</span>';
+    });
+
+    document.getElementById("analyzeBtn").disabled = true;
+    setStatus("Fetching financial data from Yahoo Finance...");
+
+    const url = `/api/analyze?ticker=${encodeURIComponent(ticker)}&session_id=${SESSION_ID}`;
+    const es = new EventSource(url);
+
+    es.onmessage = (e) => {
+      const msg = JSON.parse(e.data);
+
+      if (msg.type === "status") {
+        setStatus(msg.message);
+      }
+      else if (msg.type === "error") {
+        showError(msg.message);
+        document.getElementById("analyzeBtn").disabled = false;
+        es.close();
+      }
+      else if (msg.type === "meta") {
+        // Company header card
+        document.getElementById("companyName").textContent = msg.name;
+        document.getElementById("companySub").textContent = [msg.sector, msg.industry, msg.country].filter(Boolean).join(" · ");
+
+        const statsEl = document.getElementById("companyStats");
+        statsEl.innerHTML = "";
+
+        if (msg.marketCap) {
+          statsEl.innerHTML += `<div class="stat-item"><div class="stat-label">Market Cap</div><div class="stat-value">${fmtMarketCap(msg.marketCap)}</div></div>`;
+        }
+        if (msg.price) {
+          const sign = msg.priceChange >= 0 ? "+" : "";
+          const cls  = msg.priceChange >= 0 ? "positive" : "negative";
+          statsEl.innerHTML += `<div class="stat-item"><div class="stat-label">Price</div><div class="stat-value">${msg.price.toFixed(2)}</div></div>`;
+          if (msg.priceChange !== undefined) {
+            statsEl.innerHTML += `<div class="stat-item"><div class="stat-label">1Y Return</div><div class="stat-value ${cls}">${sign}${msg.priceChange}%</div></div>`;
+          }
+        }
+
+        document.getElementById("companyCard").classList.add("visible");
+        document.getElementById("swotGrid").style.display = "grid";
+
+        setStatus("Generating SWOT analysis with Claude AI...");
+      }
+      else if (msg.type === "chunk") {
+        accumulatedText += msg.text;
+        renderSections(accumulatedText);
+      }
+      else if (msg.type === "done") {
+        setStatus(null);
+        document.getElementById("analyzeBtn").disabled = false;
+        document.getElementById("chatSection").classList.remove("hidden");
+        es.close();
+      }
+    };
+
+    es.onerror = () => {
+      showError("Connection lost. Please try again.");
+      document.getElementById("analyzeBtn").disabled = false;
+      es.close();
+    };
+  }
+
+  // ── Chat ─────────────────────────────────────────────────────────────────
+
+  function appendMessage(role, text) {
+    const container = document.getElementById("chatMessages");
+    const div = document.createElement("div");
+    div.className = `chat-msg ${role}`;
+    div.innerHTML = `
+      <div class="msg-avatar">${role === "user" ? "You" : "AI"}</div>
+      <div class="msg-bubble" id="msg-${Date.now()}">${role === "user" ? escapeHtml(text) : marked.parse(text)}</div>
+    `;
+    container.appendChild(div);
+    container.scrollTop = container.scrollHeight;
+    return div.querySelector(".msg-bubble");
+  }
+
+  function escapeHtml(t) {
+    return t.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+
+  function sendChat() {
+    const input = document.getElementById("chatInput");
+    const question = input.value.trim();
+    if (!question) return;
+
+    input.value = "";
+    input.style.height = "auto";
+    document.getElementById("sendBtn").disabled = true;
+
+    appendMessage("user", question);
+    const bubble = appendMessage("assistant", "");
+    let answer = "";
+
+    fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: SESSION_ID, question })
+    }).then(res => {
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      function read() {
+        reader.read().then(({ done, value }) => {
+          if (done) {
+            document.getElementById("sendBtn").disabled = false;
+            return;
+          }
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop();
+          for (const part of parts) {
+            if (part.startsWith("data: ")) {
+              try {
+                const msg = JSON.parse(part.slice(6));
+                if (msg.type === "chunk") {
+                  answer += msg.text;
+                  bubble.innerHTML = marked.parse(answer);
+                  document.getElementById("chatMessages").scrollTop = 9999;
+                }
+                if (msg.type === "done") {
+                  document.getElementById("sendBtn").disabled = false;
+                }
+                if (msg.type === "error") {
+                  bubble.innerHTML = `<span style="color:var(--red)">${msg.message}</span>`;
+                  document.getElementById("sendBtn").disabled = false;
+                }
+              } catch(e) {}
+            }
+          }
+          read();
+        });
+      }
+      read();
+    });
+  }
+
+  // ── Event listeners ──────────────────────────────────────────────────────
+
+  document.getElementById("tickerInput").addEventListener("keydown", e => {
+    if (e.key === "Enter") startAnalysis();
+  });
+
+  document.getElementById("chatInput").addEventListener("keydown", e => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendChat();
+    }
+  });
+
+  // Auto-resize textarea
+  document.getElementById("chatInput").addEventListener("input", function() {
+    this.style.height = "auto";
+    this.style.height = Math.min(this.scrollHeight, 120) + "px";
+  });
+</script>
+
+</body>
+</html>
