@@ -459,7 +459,7 @@
         <div class="swot-title">Strengths</div>
         <div class="swot-subtitle">Internal · Positive</div>
       </div>
-      <div class="swot-content" id="strengthsContent"><span style="color:var(--muted)">Generating...</span></div>
+      <div class="swot-content" id="strengthsContent"><div class="spinner" style="margin:1rem auto;"></div></div>
     </div>
     <div class="swot-card w">
       <div class="swot-header">
@@ -467,7 +467,7 @@
         <div class="swot-title">Weaknesses</div>
         <div class="swot-subtitle">Internal · Negative</div>
       </div>
-      <div class="swot-content" id="weaknessesContent"><span style="color:var(--muted)">Generating...</span></div>
+      <div class="swot-content" id="weaknessesContent"><div class="spinner" style="margin:1rem auto;"></div></div>
     </div>
     <div class="swot-card o">
       <div class="swot-header">
@@ -475,7 +475,7 @@
         <div class="swot-title">Opportunities</div>
         <div class="swot-subtitle">External · Positive</div>
       </div>
-      <div class="swot-content" id="opportunitiesContent"><span style="color:var(--muted)">Generating...</span></div>
+      <div class="swot-content" id="opportunitiesContent"><div class="spinner" style="margin:1rem auto;"></div></div>
     </div>
     <div class="swot-card t">
       <div class="swot-header">
@@ -483,7 +483,7 @@
         <div class="swot-title">Threats</div>
         <div class="swot-subtitle">External · Negative</div>
       </div>
-      <div class="swot-content" id="threatsContent"><span style="color:var(--muted)">Generating...</span></div>
+      <div class="swot-content" id="threatsContent"><div class="spinner" style="margin:1rem auto;"></div></div>
     </div>
   </div>
 
@@ -652,7 +652,7 @@
     document.getElementById("chatMessages").innerHTML = "";
 
     ["strengthsContent","weaknessesContent","opportunitiesContent","threatsContent"].forEach(id => {
-      document.getElementById(id).innerHTML = '<span style="color:var(--muted)">Generating...</span>';
+      document.getElementById(id).innerHTML = '<div class="spinner" style="margin:1rem auto;"></div>';
     });
 
     document.getElementById("analyzeBtn").disabled = true;

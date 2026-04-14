@@ -208,12 +208,21 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
         if not info.get("longName"):
             info["longName"] = info.get("shortName") or ticker
 
+        # Compute market cap with fallbacks
+        mcap = info.get("marketCap") or info.get("enterpriseValue")
+        if not mcap:
+            # Try computing from shares × price
+            shares = info.get("sharesOutstanding") or info.get("impliedSharesOutstanding")
+            px = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose")
+            if shares and px:
+                mcap = int(shares * px)
+
         # Send meta
         job["meta"] = {
             "name": info.get("longName", ticker),
             "sector": info.get("sector", ""),
             "industry": info.get("industry", ""),
-            "marketCap": info.get("marketCap") or info.get("enterpriseValue"),
+            "marketCap": mcap,
             "price": info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose") or data.get("price_history_summary", {}).get("current_price"),
             "priceChange": data.get("price_history_summary", {}).get("price_change_1y_pct"),
         }
