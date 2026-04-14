@@ -730,7 +730,14 @@
 
   function showError(msg) {
     const el = document.getElementById("errorBanner");
-    el.textContent = "Error: " + msg;
+    // Clean up raw API errors for the user
+    const s = String(msg).toLowerCase();
+    if (s.includes("overloaded") || s.includes("529")) {
+      msg = "AI servers are temporarily busy. Please try again in a few seconds.";
+    } else if (s.includes("'type': 'error'") || s.includes("{")) {
+      msg = "Something went wrong. Please try again.";
+    }
+    el.textContent = msg;
     el.style.display = "block";
     setStatus(null);
   }
@@ -896,13 +903,16 @@
         // Append new text
         if (data.text) {
           accumulatedText += data.text;
+          setStatus(null); // clear any retry messages once content flows
           renderSections(accumulatedText);
         }
 
         // Check if done
         if (data.done) {
           const hasSwot = accumulatedText.includes("## Strengths") || accumulatedText.includes("## Weaknesses");
-          const isComplete = hasSwot && (accumulatedText.includes("## Recommendations") || accumulatedText.includes("## Three Key Questions"));
+          // Only consider complete if we have the LAST section (Three Key Questions) with actual content after it
+          const hasQuestions = accumulatedText.includes("## Three Key Questions");
+          const isComplete = hasSwot && hasQuestions && accumulatedText.split("## Three Key Questions")[1].trim().length > 50;
 
           // Auto-retry if partial (has some SWOT but incomplete)
           if (hasSwot && !isComplete && retryCount < MAX_RETRIES) {
