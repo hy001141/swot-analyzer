@@ -40,6 +40,18 @@ def fetch_company_data(ticker: str) -> dict:
     except Exception:
         data["info"] = {}
 
+    # fast_info is more reliable on cloud servers
+    try:
+        fi = stock.fast_info
+        data["fast_info"] = {
+            "marketCap": getattr(fi, "market_cap", None),
+            "shares": getattr(fi, "shares", None),
+            "lastPrice": getattr(fi, "last_price", None),
+            "previousClose": getattr(fi, "previous_close", None),
+        }
+    except Exception:
+        data["fast_info"] = {}
+
     for name, attr in [
         ("income_stmt", "income_stmt"),
         ("balance_sheet", "balance_sheet"),
@@ -208,14 +220,14 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
         if not info.get("longName"):
             info["longName"] = info.get("shortName") or ticker
 
-        # Compute market cap with fallbacks
-        mcap = info.get("marketCap") or info.get("enterpriseValue")
-        if not mcap:
-            # Try computing from shares × price
-            shares = info.get("sharesOutstanding") or info.get("impliedSharesOutstanding")
-            px = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose")
-            if shares and px:
-                mcap = int(shares * px)
+        # Use fast_info as primary source (more reliable on cloud)
+        fi = data.get("fast_info", {})
+
+        mcap = fi.get("marketCap") or info.get("marketCap") or info.get("enterpriseValue")
+        price = (fi.get("lastPrice") or fi.get("previousClose") or
+                 info.get("currentPrice") or info.get("regularMarketPrice") or
+                 info.get("previousClose") or
+                 data.get("price_history_summary", {}).get("current_price"))
 
         # Send meta
         job["meta"] = {
@@ -223,7 +235,7 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
             "sector": info.get("sector", ""),
             "industry": info.get("industry", ""),
             "marketCap": mcap,
-            "price": info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose") or data.get("price_history_summary", {}).get("current_price"),
+            "price": price,
             "priceChange": data.get("price_history_summary", {}).get("price_change_1y_pct"),
         }
 
