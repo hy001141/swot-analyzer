@@ -244,18 +244,11 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
             {"role": "assistant", "content": job["text"]},
         ]
 
-    except Exception as e:
-        print(f"[ERROR] Analysis failed for {ticker}: {e}", flush=True)
-        job["error"] = str(e)
-    finally:
-        # Always mark done so frontend stops polling
-        # Store partial conversation even on error so chat can still work
-        if job["text"] and session_id not in conversations:
-            conversations[session_id] = [
-                {"role": "user", "content": f"Produce a SWOT analysis for {ticker}."},
-                {"role": "assistant", "content": job["text"]},
-            ]
         job["status"] = ""
+        job["done"] = True
+
+    except Exception as e:
+        job["error"] = str(e)
         job["done"] = True
 
 
