@@ -908,6 +908,15 @@
           if (hasSwot && !isComplete && retryCount < MAX_RETRIES) {
             retryCount++;
             accumulatedText = "";
+            // Hide partial results during retry
+            document.getElementById("chatSection").classList.add("hidden");
+            document.getElementById("questionsSection").style.display = "none";
+            document.getElementById("recoSection").style.display = "none";
+            document.getElementById("strategicSection").style.display = "none";
+            document.getElementById("towsSection").style.display = "none";
+            ["strengthsContent","weaknessesContent","opportunitiesContent","threatsContent"].forEach(id => {
+              document.getElementById(id).innerHTML = '<div class="spinner" style="margin:1rem auto;"></div>';
+            });
             setStatus(`Analysis interrupted, retrying (${retryCount}/${MAX_RETRIES})...`);
             fetch("/api/analyze", {
               method: "POST",
