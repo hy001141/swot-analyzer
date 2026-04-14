@@ -710,7 +710,11 @@
     };
 
     es.onerror = () => {
-      showError("Connection lost. Please try again.");
+      // Only show error if analysis never completed (no content was rendered)
+      const hasContent = document.getElementById("swotGrid").style.display !== "none";
+      if (!hasContent) {
+        showError("Connection lost. Please try again.");
+      }
       document.getElementById("analyzeBtn").disabled = false;
       es.close();
     };
