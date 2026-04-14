@@ -715,6 +715,7 @@
       if (!hasContent) {
         showError("Connection lost. Please try again.");
       }
+      setStatus(null); // always hide spinner
       document.getElementById("analyzeBtn").disabled = false;
       es.close();
     };
