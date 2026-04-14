@@ -959,82 +959,141 @@ def run_full_research(ticker: str, status_callback: Callable = None) -> dict:
     return results
 
 
-def build_full_context(results: dict) -> str:
-    """Combine all research results into a single context string for Claude."""
+def _haiku_digest(raw_text: str, source_name: str, company: str, instruction: str) -> str:
+    """Use Haiku to extract key investment-relevant findings from raw source data."""
+    if not raw_text or len(raw_text) < 100 or not ANTHROPIC_API_KEY:
+        return raw_text  # pass through if too short or no API key
+
+    try:
+        client = anthropic.Anthropic()
+        response = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1500,
+            messages=[{
+                "role": "user",
+                "content": f"""You are a junior equity research analyst preparing a brief for the senior analyst.
+
+COMPANY: {company}
+SOURCE: {source_name}
+
+INSTRUCTION: {instruction}
+
+RAW DATA:
+{raw_text[:30000]}
+
+Produce a concise brief (500-1000 words max). Focus ONLY on investment-relevant findings. Cite specific numbers. No filler."""
+            }]
+        )
+        return response.content[0].text.strip()
+    except Exception as e:
+        print(f"[HAIKU DIGEST] Error processing {source_name}: {e}")
+        return raw_text[:5000]  # fallback to truncated raw
+
+
+def build_full_context(results: dict, status_callback=None) -> str:
+    """
+    Two-pass context building:
+    Pass 1: Haiku digests each raw source into a clean brief
+    Pass 2: Assemble all briefs into a structured research package for Opus
+    """
+    company = results.get("meta", {}).get("name", "the company")
+
+    if status_callback:
+        status_callback("Preparing research briefs from all sources...")
+
+    # Define what needs digesting (source_key, source_name, haiku_instruction)
+    digest_jobs = []
+
+    if results.get("sec_filing"):
+        digest_jobs.append(("sec_filing", "SEC 10-K Annual Filing",
+            "Extract the most investment-relevant points: key business segments and revenue mix, management's discussion of growth drivers and headwinds, specific risk factors that are material (not boilerplate), capital allocation priorities, and any forward-looking guidance or commitments. Note what management emphasizes vs what they downplay."))
+
+    if results.get("comp_filings"):
+        digest_jobs.append(("comp_filings", "Competitor SEC Filings",
+            "Focus on: how competitors describe their competitive advantages vs the target company, what risks they flag that could impact the target, where they're investing that could threaten the target's position, and any direct mentions of the target company or its products."))
+
+    if results.get("web_research"):
+        digest_jobs.append(("web_research", "Web Research (multiple sources)",
+            "Extract the key non-obvious signals: patent filings, hiring trends, product announcements, regulatory developments, supply chain changes, congressional trading, and competitive moves. Flag anything that contradicts or confirms the 10-K narrative."))
+
+    # Run Haiku digests in parallel
+    digested = {}
+    if digest_jobs:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {}
+            for source_key, source_name, instruction in digest_jobs:
+                if status_callback:
+                    status_callback(f"Analyzing {source_name}...")
+                futures[executor.submit(
+                    _haiku_digest, results[source_key], source_name, company, instruction
+                )] = source_key
+
+            for future in concurrent.futures.as_completed(futures):
+                source_key = futures[future]
+                try:
+                    digested[source_key] = future.result(timeout=30)
+                except Exception:
+                    digested[source_key] = results[source_key][:5000]
+
+    # Assemble the final research package
     sections = []
 
-    # Sources summary
     succeeded = results.get("sources_succeeded", [])
     failed = results.get("sources_failed", [])
-    sections.append(f"RESEARCH SOURCES USED: {', '.join(succeeded)}")
+    sections.append(f"RESEARCH PACKAGE — {len(succeeded)} SOURCES ANALYZED")
+    sections.append(f"Sources: {', '.join(succeeded)}")
     if failed:
-        sections.append(f"SOURCES UNAVAILABLE: {', '.join(failed)}")
+        sections.append(f"Unavailable: {', '.join(failed)}")
     sections.append("")
 
-    # Financial data
+    # Structured data (already concise, pass through directly)
     if results.get("yahoo_finance"):
-        sections.append("=" * 60)
-        sections.append("FINANCIAL DATA (Yahoo Finance)")
-        sections.append("=" * 60)
+        sections.append("━━━ SOURCE 1: FINANCIAL DATA (Yahoo Finance) ━━━")
         sections.append(results["yahoo_finance"])
 
-    # SEC filing
-    if results.get("sec_filing"):
-        sections.append("\n" + results["sec_filing"])
-
-    # Insider transactions
-    if results.get("insider_transactions"):
-        sections.append("\n" + "=" * 60)
-        sections.append(results["insider_transactions"])
-
-    # Short interest & options
     if results.get("short_interest"):
-        sections.append("\n" + "=" * 60)
+        sections.append("\n━━━ SOURCE 2: SHORT INTEREST & OPTIONS POSITIONING ━━━")
         sections.append(results["short_interest"])
 
-    # Analyst estimates
     if results.get("analyst_estimates"):
-        sections.append("\n" + "=" * 60)
+        sections.append("\n━━━ SOURCE 3: ANALYST ESTIMATES & REVISIONS ━━━")
         sections.append(results["analyst_estimates"])
 
-    # Earnings history
     if results.get("earnings_history"):
-        sections.append("\n" + "=" * 60)
+        sections.append("\n━━━ SOURCE 4: EARNINGS SURPRISE HISTORY ━━━")
         sections.append(results["earnings_history"])
 
-    # Institutional ownership
     if results.get("institutional_changes"):
-        sections.append("\n" + "=" * 60)
+        sections.append("\n━━━ SOURCE 5: INSTITUTIONAL OWNERSHIP CHANGES ━━━")
         sections.append(results["institutional_changes"])
 
-    # Macro
+    if results.get("insider_transactions"):
+        sections.append("\n━━━ SOURCE 6: INSIDER TRANSACTIONS ━━━")
+        sections.append(results["insider_transactions"])
+
+    # Digested sources (processed by Haiku)
+    if digested.get("sec_filing"):
+        sections.append("\n━━━ SOURCE 7: SEC 10-K FILING BRIEF (analyst-prepared) ━━━")
+        sections.append(digested["sec_filing"])
+
     if results.get("macro_data"):
-        sections.append("\n" + "=" * 60)
+        sections.append("\n━━━ SOURCE 8: MACRO ENVIRONMENT (FRED) ━━━")
         sections.append(results["macro_data"])
 
-    # App store
     if results.get("app_store"):
-        sections.append("\n" + "=" * 60)
+        sections.append("\n━━━ SOURCE 9: APP STORE DATA ━━━")
         sections.append(results["app_store"])
 
-    # Competitor comp table
     if results.get("comp_table"):
-        sections.append("\n" + "=" * 60)
+        sections.append("\n━━━ SOURCE 10: COMPARABLE COMPANY VALUATION ━━━")
         sections.append(results["comp_table"])
 
-    # Competitor 10-K excerpts
-    if results.get("comp_filings"):
-        sections.append("\n" + "=" * 60)
-        sections.append("COMPETITOR SEC FILINGS (10-K excerpts):")
-        sections.append("Use these to understand how competitors describe THEIR competitive position,")
-        sections.append("what risks THEY flag, and where THEY see opportunities — this reveals the")
-        sections.append("competitive dynamics that the target company's own 10-K won't tell you.")
-        sections.append("=" * 60)
-        sections.append(results["comp_filings"])
+    if digested.get("comp_filings"):
+        sections.append("\n━━━ SOURCE 11: COMPETITOR FILING ANALYSIS (analyst-prepared) ━━━")
+        sections.append(digested["comp_filings"])
 
-    # Web research
-    if results.get("web_research"):
-        sections.append("\n" + "=" * 60)
-        sections.append(results["web_research"])
+    if digested.get("web_research"):
+        sections.append("\n━━━ SOURCE 12: WEB INTELLIGENCE BRIEF (analyst-prepared) ━━━")
+        sections.append(digested["web_research"])
 
     return "\n".join(sections)

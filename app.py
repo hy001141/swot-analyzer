@@ -274,8 +274,8 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
         meta["sources"] = research.get("sources_succeeded", [])
         job["meta"] = meta
 
-        # Build the full context from all research sources
-        full_context = build_full_context(research)
+        # Build the full context — Haiku digests raw sources into clean briefs
+        full_context = build_full_context(research, status_callback=research_status)
         sources = research.get("sources_succeeded", [])
         failed = research.get("sources_failed", [])
         print(f"[RESEARCH] {ticker}: {len(sources)} sources OK ({', '.join(sources)}), {len(failed)} failed ({', '.join(failed)}), context={len(full_context)} chars", flush=True)
@@ -290,7 +290,7 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
                 job["text"] = ""  # reset on retry
                 with client.messages.stream(
                     model="claude-opus-4-20250514",
-                    max_tokens=8000,
+                    max_tokens=16000,
                     system=SWOT_SYSTEM_PROMPT,
                     messages=[{
                         "role": "user",
@@ -311,9 +311,10 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
                 else:
                     raise api_err
 
-        # Store conversation for follow-up
+        # Store conversation with FULL context for follow-up questions
+        # This lets the chat answer detailed questions about specific 10-K sections, financials, etc.
         conversations[session_id] = [
-            {"role": "user", "content": f"Produce a SWOT analysis for {ticker}. Data:\n\n{summary}"},
+            {"role": "user", "content": f"Here is the complete research package for {ticker}:\n\n{full_context}\n\nBased on this data, produce a SWOT analysis."},
             {"role": "assistant", "content": job["text"]},
         ]
 
