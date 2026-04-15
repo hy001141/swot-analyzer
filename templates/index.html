@@ -734,6 +734,18 @@
     </div>
   </div>
 
+  <!-- Reverse DCF -->
+  <div id="dcfSection" class="analysis-section" style="display:none;">
+    <div class="section-title">Reverse DCF — What the Market is Pricing In</div>
+    <div class="section-content" id="dcfContent"></div>
+  </div>
+
+  <!-- Sources -->
+  <div id="sourcesSection" class="analysis-section" style="display:none;">
+    <div class="section-title">Research Sources</div>
+    <div class="section-content" id="sourcesContent"></div>
+  </div>
+
   <!-- Chat -->
   <div id="chatSection" class="hidden">
     <div class="chat-header">
@@ -901,6 +913,45 @@
       });
       document.getElementById("questionsSection").style.display = "block";
     }
+
+    // Reverse DCF (can be under "Reverse DCF" or "Reverse DCF — What the Market is Pricing In")
+    const dcf = extractSection(text, "Reverse DCF");
+    if (dcf) {
+      document.getElementById("dcfContent").innerHTML = marked.parse(dcf);
+      document.getElementById("dcfSection").style.display = "block";
+    }
+  }
+
+  function renderSources(meta) {
+    const container = document.getElementById("sourcesContent");
+    if (!container) return;
+    const webCitations = meta.web_citations || [];
+    const sources = meta.sources || [];
+
+    let html = "";
+
+    // Data sources list (non-clickable labels)
+    if (sources.length) {
+      html += "<p style='margin-bottom:0.75rem;font-size:0.75rem;color:#777;'>";
+      html += "<strong style='color:#ff9900;'>STRUCTURED SOURCES:</strong> " + sources.join(" · ");
+      html += "</p>";
+    }
+
+    // Web citations (clickable links)
+    if (webCitations.length) {
+      html += "<p style='margin-bottom:0.5rem;font-size:0.75rem;color:#ff9900;font-weight:700;'>WEB RESEARCH [12]:</p>";
+      html += "<ol style='padding-left:1.5rem;font-size:0.75rem;'>";
+      webCitations.forEach(c => {
+        const safeTitle = (c.title || c.url).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+        html += `<li style='margin-bottom:0.4rem;'><a href='${c.url}' target='_blank' rel='noopener' style='color:#00ddff;text-decoration:none;border-bottom:1px dotted #00ddff;'>${safeTitle}</a><br><span style='color:#555;font-size:0.65rem;'>[12.${webCitations.indexOf(c) + 1}] ${c.query || ''}</span></li>`;
+      });
+      html += "</ol>";
+    }
+
+    if (html) {
+      container.innerHTML = html;
+      document.getElementById("sourcesSection").style.display = "block";
+    }
   }
 
   // ── Main analysis ────────────────────────────────────────────────────────
@@ -928,6 +979,8 @@
     document.getElementById("recoSection").style.display = "none";
     document.getElementById("questionsSection").style.display = "none";
     document.getElementById("compSection").style.display = "none";
+    document.getElementById("dcfSection").style.display = "none";
+    document.getElementById("sourcesSection").style.display = "none";
     document.getElementById("chatSection").classList.add("hidden");
     document.getElementById("chatMessages").innerHTML = "";
 
@@ -999,6 +1052,9 @@
           if (m.comp_table) {
             renderCompTable(m.comp_table);
           }
+
+          // Render sources (web citations + structured data list)
+          renderSources(m);
         }
 
         // Append new text
@@ -1027,6 +1083,7 @@
             document.getElementById("recoSection").style.display = "none";
             document.getElementById("strategicSection").style.display = "none";
             document.getElementById("towsSection").style.display = "none";
+            document.getElementById("dcfSection").style.display = "none";
             ["strengthsContent","weaknessesContent","opportunitiesContent","threatsContent"].forEach(id => {
               document.getElementById(id).innerHTML = '<div class="spinner" style="margin:1rem auto;"></div>';
             });
@@ -1056,6 +1113,9 @@
             document.getElementById("towsSection").style.display = "none";
             document.getElementById("recoSection").style.display = "none";
             document.getElementById("questionsSection").style.display = "none";
+            document.getElementById("dcfSection").style.display = "none";
+            document.getElementById("sourcesSection").style.display = "none";
+            document.getElementById("compSection").style.display = "none";
             showError(data.error || "Analysis failed — not enough financial data available for this ticker.");
           }
           return;

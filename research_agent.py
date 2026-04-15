@@ -28,7 +28,7 @@ from sec_fetcher import fetch_sec_data, build_sec_summary
 BRAVE_API_KEY = os.environ.get("BRAVE_API_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 WEB_TIMEOUT = 10  # seconds per web request
-MAX_BRAVE_QUERIES = 8
+MAX_BRAVE_QUERIES = 12
 
 
 # ── Data Sources (all independent, all have try/except) ──────────────────
@@ -415,14 +415,17 @@ def scrape_url(url: str, max_chars: int = 5000) -> str:
         return ""
 
 
-def run_brave_research(queries: list[str], status_callback: Callable = None) -> str:
-    """Run multiple Brave searches and scrape top results."""
+def run_brave_research(queries: list[str], status_callback: Callable = None) -> dict:
+    """
+    Run multiple Brave searches and scrape top results.
+    Returns dict: {"text": formatted string for LLM, "citations": list of {title, url} for frontend}
+    """
+    empty = {"text": "", "citations": []}
     if not BRAVE_API_KEY:
-        return ""
+        return empty
 
     all_results = []
 
-    # Run searches in parallel
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         future_to_query = {
             executor.submit(brave_search, q, 3): q for q in queries[:MAX_BRAVE_QUERIES]
@@ -438,7 +441,7 @@ def run_brave_research(queries: list[str], status_callback: Callable = None) -> 
                 continue
 
     if not all_results:
-        return ""
+        return empty
 
     # Deduplicate by URL
     seen_urls = set()
@@ -448,15 +451,15 @@ def run_brave_research(queries: list[str], status_callback: Callable = None) -> 
             seen_urls.add(r["url"])
             unique_results.append(r)
 
-    # Scrape top results in parallel (limit to 8 to avoid being slow)
     if status_callback:
-        status_callback(f"Analyzing {len(unique_results[:8])} web sources...")
+        status_callback(f"Analyzing {len(unique_results[:12])} web sources...")
 
+    # Scrape top results in parallel
     scraped = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         future_to_result = {
             executor.submit(scrape_url, r["url"], 3000): r
-            for r in unique_results[:8]
+            for r in unique_results[:12]
         }
         for future in concurrent.futures.as_completed(future_to_result):
             result = future_to_result[future]
@@ -473,17 +476,25 @@ def run_brave_research(queries: list[str], status_callback: Callable = None) -> 
                 continue
 
     if not scraped:
-        return ""
+        return empty
 
-    # Format for Claude
+    # Format for Claude — include sub-index [12.X] so citations can reference specific sources
     lines = [f"WEB RESEARCH ({len(scraped)} sources scraped):"]
-    for s in scraped:
-        lines.append(f"\n--- Source: {s['title']} ---")
+    citations = []
+    for idx, s in enumerate(scraped, start=1):
+        sub_ref = f"[12.{idx}]"
+        lines.append(f"\n{sub_ref} {s['title']}")
         lines.append(f"URL: {s['url']}")
         lines.append(f"Search query: {s['query']}")
         lines.append(s["content"])
+        citations.append({
+            "sub_ref": f"12.{idx}",
+            "title": s["title"],
+            "url": s["url"],
+            "query": s["query"],
+        })
 
-    return "\n".join(lines)
+    return {"text": "\n".join(lines), "citations": citations}
 
 
 # ── Competitor Analysis ───────────────────────────────────────────────────
@@ -714,50 +725,62 @@ def _build_comp_table(comp_data: list[dict]) -> str:
 # ── Haiku Source Recommender ─────────────────────────────────────────────
 
 def get_research_queries(ticker: str, company_name: str, sector: str) -> list[str]:
-    """Ask Haiku what to search for this specific company."""
-    if not ANTHROPIC_API_KEY:
-        return _default_queries(ticker, company_name)
-
-    try:
-        client = anthropic.Anthropic()
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=500,
-            messages=[{
-                "role": "user",
-                "content": f"""You are a hedge fund research analyst. For {company_name} ({ticker}), sector: {sector}.
-
-What 6 specific web searches would find non-obvious, investment-relevant intelligence that ISN'T in standard filings or Yahoo Finance?
-
-Think: company blog posts, engineering publications, patent filings, regulatory submissions, supply chain signals, hiring trends, competitor moves, industry-specific data.
-
-Return ONLY a JSON array of 6 search query strings. No explanation. Example:
-["NVIDIA blog AI inference optimization 2025", "TSMC capacity allocation NVIDIA vs AMD"]"""
-            }]
-        )
-        text = response.content[0].text.strip()
-        # Parse JSON array
-        if "[" in text:
-            json_str = text[text.index("["):text.rindex("]") + 1]
-            queries = json.loads(json_str)
-            if isinstance(queries, list) and len(queries) > 0:
-                return queries[:8]
-    except Exception as e:
-        print(f"[HAIKU] Error getting research queries: {e}")
-
-    return _default_queries(ticker, company_name)
-
-
-def _default_queries(ticker: str, company_name: str) -> list[str]:
-    """Fallback search queries if Haiku fails."""
-    return [
-        f'"{company_name}" blog announcement 2025 2026',
-        f'"{company_name}" patent filing recent',
-        f"{ticker} earnings analysis bull bear case",
-        f'"{company_name}" competitive threat disruption',
-        f"{ticker} insider trading congressional",
-        f'"{company_name}" hiring engineering jobs signal',
+    """
+    Build the full research query set: hardcoded alpha-signal queries that ALWAYS run,
+    plus Sonnet-generated creative queries specific to this company.
+    """
+    # Hardcoded alpha-signal queries — these ALWAYS run for every company
+    # Each one targets a specific type of leading indicator
+    alpha_queries = [
+        # Hiring as R&D/roadmap signal
+        f'"{company_name}" hiring engineers 2026 site:linkedin.com OR site:indeed.com',
+        # Patents as invention pipeline
+        f'"{company_name}" patent 2025 2026 site:patents.google.com OR "patent filing"',
+        # Research papers for tech/biotech companies
+        f'"{company_name}" research paper 2026 site:arxiv.org OR "published research"',
+        # Congressional trading
+        f'"{ticker}" congressional trading Pelosi Senate disclosure 2026',
+        # Earnings call analyst questions (what's on analysts' minds)
+        f'"{company_name}" earnings call transcript analyst questions concerns 2026',
+        # Competitor moves specifically naming the target
+        f'competitor vs "{company_name}" threat market share 2026',
     ]
+
+    # Add Sonnet-generated creative queries
+    creative_queries = []
+    if ANTHROPIC_API_KEY:
+        try:
+            client = anthropic.Anthropic()
+            response = client.messages.create(
+                model="claude-sonnet-4-20250514",
+                max_tokens=500,
+                messages=[{
+                    "role": "user",
+                    "content": f"""You are a hedge fund research analyst building a research agenda for {company_name} ({ticker}), sector: {sector}.
+
+I already have hardcoded queries for: hiring, patents, research papers, congressional trading, earnings transcripts, and competitor moves.
+
+What 4 ADDITIONAL company-specific searches would uncover non-obvious alpha? Think about:
+- Mechanical/structural insights (accounting policy changes, depreciation schedules, rev rec)
+- Supply chain triangulation via specific suppliers/customers (name them)
+- Regulatory filings or court cases that matter for this specific business
+- Industry-specific data sources (e.g., semiconductor capacity, ad spend benchmarks)
+
+For example for NVDA: "TSMC N3 capacity allocation NVIDIA 2026", "NVIDIA Blackwell yield rate", "Broadcom largest customer concentration NVIDIA", "NVLink patent litigation"
+
+Return ONLY a JSON array of 4 search query strings. No explanation."""
+                }]
+            )
+            text = response.content[0].text.strip()
+            if "[" in text:
+                json_str = text[text.index("["):text.rindex("]") + 1]
+                creative_queries = json.loads(json_str)
+                if not isinstance(creative_queries, list):
+                    creative_queries = []
+        except Exception as e:
+            print(f"[SONNET QUERIES] Error: {e}")
+
+    return alpha_queries + creative_queries[:4]
 
 
 # ── Main Research Pipeline ───────────────────────────────────────────────
@@ -779,6 +802,7 @@ def run_full_research(ticker: str, status_callback: Callable = None) -> dict:
         "macro_data": "",
         "app_store": "",
         "web_research": "",
+        "web_citations": [],
         "sources_succeeded": [],
         "sources_failed": [],
         "meta": {},
@@ -953,11 +977,18 @@ def run_full_research(ticker: str, status_callback: Callable = None) -> dict:
         except Exception:
             pass  # Not critical, don't report as failure
 
-        # Get Haiku's search recommendations
+        # Get full query set (hardcoded alpha signals + Sonnet creative queries)
         try:
-            search_queries = queries_future.result(timeout=20)
-        except Exception:
-            search_queries = _default_queries(ticker, company_name)
+            search_queries = queries_future.result(timeout=30)
+        except Exception as e:
+            print(f"[QUERIES] Error getting queries: {e}")
+            # Fall back to just the hardcoded alpha queries
+            search_queries = [
+                f'"{company_name}" hiring engineers 2026',
+                f'"{company_name}" patent filing 2026',
+                f'"{ticker}" congressional trading disclosure',
+                f'"{company_name}" earnings call analyst questions',
+            ]
 
     # Step 3: Run Brave web research and competitor analysis in parallel
     with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
@@ -978,12 +1009,19 @@ def run_full_research(ticker: str, status_callback: Callable = None) -> dict:
 
         if brave_future:
             try:
-                results["web_research"] = brave_future.result(timeout=60)
+                brave_result = brave_future.result(timeout=120)
+                if isinstance(brave_result, dict):
+                    results["web_research"] = brave_result.get("text", "")
+                    results["web_citations"] = brave_result.get("citations", [])
+                else:
+                    results["web_research"] = brave_result or ""
+                    results["web_citations"] = []
                 if results["web_research"]:
                     results["sources_succeeded"].append("Web Research (Brave)")
             except Exception as e:
                 print(f"[BRAVE] Error: {e}")
                 results["sources_failed"].append("Web Research")
+                results["web_citations"] = []
 
         try:
             comp_results = comp_future.result(timeout=90)
@@ -1033,108 +1071,44 @@ Produce a concise brief (500-1000 words max). Focus ONLY on investment-relevant 
 
 def build_full_context(results: dict, status_callback=None) -> str:
     """
-    Two-pass context building:
-    Pass 1: Haiku digests each raw source into a clean brief
-    Pass 2: Assemble all briefs into a structured research package for Opus
+    Build research package with ALL raw sources passed directly to Opus.
+    No Haiku digestion — full nuance preserved. Opus has 200K context, can handle it.
     """
-    company = results.get("meta", {}).get("name", "the company")
-
     if status_callback:
-        status_callback("Preparing research briefs from all sources...")
+        status_callback("Assembling research package...")
 
-    # Define what needs digesting (source_key, source_name, haiku_instruction)
-    digest_jobs = []
-
-    if results.get("sec_filing"):
-        digest_jobs.append(("sec_filing", "SEC 10-K Annual Filing",
-            "Extract the most investment-relevant points: key business segments and revenue mix, management's discussion of growth drivers and headwinds, specific risk factors that are material (not boilerplate), capital allocation priorities, and any forward-looking guidance or commitments. Note what management emphasizes vs what they downplay."))
-
-    if results.get("comp_filings"):
-        digest_jobs.append(("comp_filings", "Competitor SEC Filings",
-            "Focus on: how competitors describe their competitive advantages vs the target company, what risks they flag that could impact the target, where they're investing that could threaten the target's position, and any direct mentions of the target company or its products."))
-
-    if results.get("web_research"):
-        digest_jobs.append(("web_research", "Web Research (multiple sources)",
-            "Extract the key non-obvious signals: patent filings, hiring trends, product announcements, regulatory developments, supply chain changes, congressional trading, and competitive moves. Flag anything that contradicts or confirms the 10-K narrative."))
-
-    # Run Haiku digests in parallel
-    digested = {}
-    if digest_jobs:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            futures = {}
-            for source_key, source_name, instruction in digest_jobs:
-                if status_callback:
-                    status_callback(f"Analyzing {source_name}...")
-                futures[executor.submit(
-                    _haiku_digest, results[source_key], source_name, company, instruction
-                )] = source_key
-
-            for future in concurrent.futures.as_completed(futures):
-                source_key = futures[future]
-                try:
-                    digested[source_key] = future.result(timeout=30)
-                except Exception:
-                    digested[source_key] = results[source_key][:5000]
-
-    # Assemble the final research package
     sections = []
 
     succeeded = results.get("sources_succeeded", [])
     failed = results.get("sources_failed", [])
-    sections.append(f"RESEARCH PACKAGE — {len(succeeded)} SOURCES ANALYZED")
-    sections.append(f"Sources: {', '.join(succeeded)}")
+    sections.append(f"RESEARCH PACKAGE — {len(succeeded)} SOURCES")
+    sections.append(f"Sources considered: {', '.join(succeeded)}")
     if failed:
         sections.append(f"Unavailable: {', '.join(failed)}")
     sections.append("")
 
-    # Structured data (already concise, pass through directly)
-    if results.get("yahoo_finance"):
-        sections.append("━━━ SOURCE 1: FINANCIAL DATA (Yahoo Finance) ━━━")
-        sections.append(results["yahoo_finance"])
+    # All sources raw — numbered for citation
+    source_num = 1
 
-    if results.get("short_interest"):
-        sections.append("\n━━━ SOURCE 2: SHORT INTEREST & OPTIONS POSITIONING ━━━")
-        sections.append(results["short_interest"])
+    def add_source(title: str, content: str):
+        nonlocal source_num
+        if content:
+            sections.append(f"\n━━━ SOURCE [{source_num}]: {title} ━━━")
+            sections.append(content)
+            source_num += 1
 
-    if results.get("analyst_estimates"):
-        sections.append("\n━━━ SOURCE 3: ANALYST ESTIMATES & REVISIONS ━━━")
-        sections.append(results["analyst_estimates"])
-
-    if results.get("earnings_history"):
-        sections.append("\n━━━ SOURCE 4: EARNINGS SURPRISE HISTORY ━━━")
-        sections.append(results["earnings_history"])
-
-    if results.get("institutional_changes"):
-        sections.append("\n━━━ SOURCE 5: INSTITUTIONAL OWNERSHIP CHANGES ━━━")
-        sections.append(results["institutional_changes"])
-
-    if results.get("insider_transactions"):
-        sections.append("\n━━━ SOURCE 6: INSIDER TRANSACTIONS ━━━")
-        sections.append(results["insider_transactions"])
-
-    # Digested sources (processed by Haiku)
-    if digested.get("sec_filing"):
-        sections.append("\n━━━ SOURCE 7: SEC 10-K FILING BRIEF (analyst-prepared) ━━━")
-        sections.append(digested["sec_filing"])
-
-    if results.get("macro_data"):
-        sections.append("\n━━━ SOURCE 8: MACRO ENVIRONMENT (FRED) ━━━")
-        sections.append(results["macro_data"])
-
-    if results.get("app_store"):
-        sections.append("\n━━━ SOURCE 9: APP STORE DATA ━━━")
-        sections.append(results["app_store"])
-
-    if results.get("comp_table"):
-        sections.append("\n━━━ SOURCE 10: COMPARABLE COMPANY VALUATION ━━━")
-        sections.append(results["comp_table"])
-
-    if digested.get("comp_filings"):
-        sections.append("\n━━━ SOURCE 11: COMPETITOR FILING ANALYSIS (analyst-prepared) ━━━")
-        sections.append(digested["comp_filings"])
-
-    if digested.get("web_research"):
-        sections.append("\n━━━ SOURCE 12: WEB INTELLIGENCE BRIEF (analyst-prepared) ━━━")
-        sections.append(digested["web_research"])
+    add_source("FINANCIAL DATA (Yahoo Finance)", results.get("yahoo_finance", ""))
+    add_source("SHORT INTEREST & OPTIONS POSITIONING", results.get("short_interest", ""))
+    add_source("ANALYST ESTIMATES & REVISIONS", results.get("analyst_estimates", ""))
+    add_source("EARNINGS SURPRISE HISTORY", results.get("earnings_history", ""))
+    add_source("INSTITUTIONAL OWNERSHIP CHANGES", results.get("institutional_changes", ""))
+    add_source("INSIDER TRANSACTIONS", results.get("insider_transactions", ""))
+    add_source("SEC 10-K / 10-Q FULL FILING TEXT", results.get("sec_filing", ""))
+    add_source("MACRO ENVIRONMENT (FRED)", results.get("macro_data", ""))
+    add_source("APP STORE DATA", results.get("app_store", ""))
+    add_source("COMPARABLE COMPANY VALUATION", results.get("comp_table", ""))
+    add_source("COMPETITOR SEC 10-K FILINGS", results.get("comp_filings", ""))
+    add_source("WEB INTELLIGENCE (news, patents, jobs, research papers, congressional trading)",
+               results.get("web_research", ""))
 
     return "\n".join(sections)

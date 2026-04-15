@@ -143,10 +143,9 @@ def fetch_sec_data(ticker: str, status_callback=None) -> dict:
         f"{f['form']} ({f['date']})" for f in filings
     ]
 
-    # Find the latest 10-K, fall back to 10-Q
+    # Find the latest 10-K AND latest 10-Q (pull both, not just one)
     ten_k = next((f for f in filings if f["form"] == "10-K"), None)
     ten_q = next((f for f in filings if f["form"] == "10-Q"), None)
-    annual = ten_k or ten_q
 
     # Find earnings-related 8-Ks (item 2.02 = earnings release)
     earnings_8k = next(
@@ -154,17 +153,30 @@ def fetch_sec_data(ticker: str, status_callback=None) -> dict:
         None
     )
 
-    # Download annual filing — send raw text, Claude handles extraction
-    if annual:
+    # Download 10-K
+    if ten_k:
         if status_callback:
-            status_callback(f"Downloading {annual['form']} ({annual['date']})...")
-        text = download_filing(annual["url"])
+            status_callback(f"Downloading 10-K ({ten_k['date']})...")
+        text = download_filing(ten_k["url"])
         if text:
-            if status_callback:
-                status_callback(f"Processing {annual['form']}...")
             result["annual_filing"] = smart_truncate(text, max_chars=50000)
-            result["annual_type"] = annual["form"]
-            result["annual_date"] = annual["date"]
+            result["annual_type"] = "10-K"
+            result["annual_date"] = ten_k["date"]
+
+    # Download 10-Q (most recent quarterly — has the freshest numbers)
+    if ten_q:
+        if status_callback:
+            status_callback(f"Downloading 10-Q ({ten_q['date']})...")
+        text = download_filing(ten_q["url"])
+        if text:
+            result["quarterly_filing"] = smart_truncate(text, max_chars=30000)
+            result["quarterly_date"] = ten_q["date"]
+
+    # Fall back: if no 10-K available, use 10-Q as the annual slot
+    if not result.get("annual_filing") and result.get("quarterly_filing"):
+        result["annual_filing"] = result["quarterly_filing"]
+        result["annual_type"] = "10-Q"
+        result["annual_date"] = result.get("quarterly_date", "")
 
     # Download latest earnings 8-K
     if earnings_8k:
@@ -190,11 +202,17 @@ def build_sec_summary(sec_data: dict) -> str:
         filing_date = sec_data.get("annual_date", "")
         sections.append("=" * 60)
         sections.append(f"FULL {filing_type} FILING TEXT (filed {filing_date}):")
-        sections.append("The following is the raw text from the company's annual/quarterly SEC filing.")
-        sections.append("It contains Business Overview, Risk Factors, MD&A, Financial Statements, and more.")
-        sections.append("Use this primary source material to ground your analysis.")
+        sections.append("Raw text from the company's annual filing: Business Overview, Risk Factors, MD&A, Financial Statements.")
         sections.append("=" * 60)
         sections.append(sec_data["annual_filing"])
+
+    if sec_data.get("quarterly_filing") and sec_data.get("annual_type") != "10-Q":
+        quarterly_date = sec_data.get("quarterly_date", "")
+        sections.append("\n" + "=" * 60)
+        sections.append(f"FULL 10-Q QUARTERLY FILING TEXT (filed {quarterly_date}):")
+        sections.append("Raw text from the latest quarterly filing — most recent numbers and management commentary.")
+        sections.append("=" * 60)
+        sections.append(sec_data["quarterly_filing"])
 
     if sec_data.get("earnings_release"):
         sections.append("\n" + "=" * 60)

@@ -1,6 +1,6 @@
-flask==3.1.1
-gunicorn==23.0.0
-yfinance==1.2.2
-anthropic==0.94.1
-beautifulsoup4==4.13.4
-lxml==5.4.0
+flask
+gunicorn
+yfinance
+anthropic
+beautifulsoup4
+lxml
