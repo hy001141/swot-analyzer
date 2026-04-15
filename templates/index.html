@@ -545,6 +545,33 @@
       border-left: 1px solid rgba(0, 221, 255, 0.2);
     }
 
+    /* Inline citation links and tooltips */
+    .citation-link {
+      color: #00ddff;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 0.72rem;
+      padding: 0 1px;
+      border-bottom: 1px dotted #00ddff;
+      cursor: pointer;
+    }
+    .citation-link:hover {
+      color: #33eeff;
+      background: rgba(0, 221, 255, 0.12);
+    }
+    .citation-tooltip {
+      color: #ff9900;
+      font-weight: 600;
+      font-size: 0.72rem;
+      padding: 0 1px;
+      border-bottom: 1px dotted #ff9900;
+      cursor: help;
+    }
+    .citation-tooltip:hover {
+      color: #ffbb44;
+      background: rgba(255, 153, 0, 0.08);
+    }
+
     /* Scrollbar */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -809,6 +836,50 @@
 
   // ── Parse sections from markdown ────────────────────────────────────────
 
+  // Map structured source numbers to human-readable labels for tooltips
+  const SOURCE_LABELS = {
+    "1": "Yahoo Finance — financials, margins, growth",
+    "2": "Short interest & options positioning",
+    "3": "Analyst estimates & revisions",
+    "4": "Earnings surprise history",
+    "5": "Institutional ownership changes",
+    "6": "Insider transactions",
+    "7": "SEC 10-K / 10-Q full filing",
+    "8": "FRED macro (rates, CPI, GDP, VIX)",
+    "9": "App Store rankings",
+    "10": "Comparable company valuation table",
+    "11": "Competitor SEC 10-K filings",
+    "12": "Web intelligence (patents, jobs, earnings calls, congressional trading)",
+  };
+
+  // Global reference to the current web citations (set when meta arrives)
+  let currentWebCitations = [];
+
+  // Convert inline [N] and [12.X] citations into clickable/tooltip anchors
+  function linkifyCitations(html) {
+    // Handle [12.X] sub-references first (these get real links to scraped URLs)
+    html = html.replace(/\[12\.(\d+)\]/g, (match, idx) => {
+      const i = parseInt(idx, 10) - 1;
+      if (i >= 0 && i < currentWebCitations.length && currentWebCitations[i].url) {
+        const url = currentWebCitations[i].url;
+        const title = (currentWebCitations[i].title || '').replace(/"/g, '&quot;');
+        return `<a href="${url}" target="_blank" rel="noopener" title="${title}" class="citation-link">[12.${idx}]</a>`;
+      }
+      return `<span class="citation-tooltip" title="Web source ${idx}">[12.${idx}]</span>`;
+    });
+
+    // Handle [N] for structured sources — show tooltip with source name
+    html = html.replace(/\[(\d+)\](?!\.)/g, (match, num) => {
+      const label = SOURCE_LABELS[num];
+      if (label) {
+        return `<span class="citation-tooltip" title="${label}">[${num}]</span>`;
+      }
+      return match;
+    });
+
+    return html;
+  }
+
   function extractSection(text, header) {
     // Match "## Header" followed by anything (even extra text on same line like "## Strengths = What protects...")
     const regex = new RegExp(`## ${header}[^\\n]*\\n([\\s\\S]*?)(?=\\n## |$)`, 'i');
@@ -872,28 +943,28 @@
     for (const s of sections) {
       const content = extractSection(text, s.header);
       if (content) {
-        document.getElementById(s.id).innerHTML = marked.parse(content);
+        document.getElementById(s.id).innerHTML = linkifyCitations(marked.parse(content));
       }
     }
 
     // Strategic fit
     const sf = extractSection(text, "Strategic Fit Assessment");
     if (sf) {
-      document.getElementById("strategicContent").innerHTML = marked.parse(sf);
+      document.getElementById("strategicContent").innerHTML = linkifyCitations(marked.parse(sf));
       document.getElementById("strategicSection").style.display = "block";
     }
 
     // TOWS
     const tows = extractSection(text, "TOWS Matrix");
     if (tows) {
-      document.getElementById("towsContent").innerHTML = marked.parse(tows);
+      document.getElementById("towsContent").innerHTML = linkifyCitations(marked.parse(tows));
       document.getElementById("towsSection").style.display = "block";
     }
 
     // Recommendations
     const reco = extractSection(text, "Recommendations");
     if (reco) {
-      document.getElementById("recoContent").innerHTML = marked.parse(reco);
+      document.getElementById("recoContent").innerHTML = linkifyCitations(marked.parse(reco));
       document.getElementById("recoSection").style.display = "block";
     }
 
@@ -946,7 +1017,7 @@
       }
     }
     if (dcf) {
-      document.getElementById("dcfContent").innerHTML = marked.parse(dcf);
+      document.getElementById("dcfContent").innerHTML = linkifyCitations(marked.parse(dcf));
       document.getElementById("dcfSection").style.display = "block";
     }
   }
@@ -955,6 +1026,7 @@
     const container = document.getElementById("sourcesContent");
     if (!container) return;
     const webCitations = meta.web_citations || [];
+    currentWebCitations = webCitations;  // store globally so linkifyCitations can use them
     const sources = meta.sources || [];
 
     let html = "";
@@ -996,6 +1068,7 @@
 
     currentTicker = ticker;
     accumulatedText = "";
+    currentWebCitations = [];
     retryCount = 0;
     hideError();
 
