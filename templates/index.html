@@ -114,7 +114,7 @@
 
     /* ── Status banner / terminal log ── */
     #statusBanner {
-      display: none;
+      display: block;
       background: #050505;
       border: 1px solid #1a1a1a;
       border-left: 2px solid #ff9900;
@@ -125,8 +125,7 @@
       font-size: 0.78rem;
       position: relative;
     }
-    #statusBanner.hidden { display: none; }
-    #statusBanner.visible { display: block; }
+    #statusBanner.hidden { display: none !important; }
 
     .status-current {
       display: flex;
