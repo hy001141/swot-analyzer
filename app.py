@@ -321,7 +321,7 @@ FORMATTING RULES:
 - Threats MUST include one labeled "THESIS KILLER:" — the single disconfirming event that closes the position
 - Strategic Fit Assessment: 2-3 concise paragraphs connecting internal mechanics to external conditions
 - TOWS Matrix: 4 bullets, one per strategy. Format: "- **SO Strategy:** [specific mechanical action citing sources]"
-- Recommendations: 3-5 bullets. Each must include: (a) specific leading indicator to monitor, (b) source to watch for confirmation/disconfirmation, (c) specific price/metric trigger, (d) source citations.
+- Recommendations: 3-5 bullets. CRITICAL: Do NOT write generic monitoring frameworks like "track Cloud margins" or "watch revenue growth" — every PM is already doing that. Each recommendation must be a NON-OBVIOUS angle that requires specific reasoning. Examples of what RECOMMENDATIONS SHOULD LOOK LIKE: "Build a long position before the X catalyst because the market is pricing in Y but the data shows Z", "Pair-trade against [specific competitor] because their disclosed [specific thing] reveals their Q-over-Q trajectory diverges from target's", "Fade the consensus narrative on [specific topic] because [non-obvious reason from the data]". Each rec should answer: what does THIS analysis reveal that the consensus doesn't see, and what specific action follows? Generic "monitor margins" recs will be REJECTED.
 - Key Questions: 3-5 numbered items. Each question must be non-obvious, cite specific data, and be answerable through channel checks/expert calls/data analysis — NOT from reading the 10-K. Only write as many as you actually have meaningful questions for — don't pad.
 
 BULLET POINTS ONLY. NO PROSE PARAGRAPHS IN SWOT SECTIONS. Each bullet starts with "-" and a **bolded** lead-in.
