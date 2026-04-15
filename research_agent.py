@@ -1033,61 +1033,23 @@ Produce a concise brief (500-1000 words max). Focus ONLY on investment-relevant 
 
 def build_full_context(results: dict, status_callback=None) -> str:
     """
-    Two-pass context building:
-    Pass 1: Haiku digests each raw source into a clean brief
-    Pass 2: Assemble all briefs into a structured research package for Opus
+    Build a structured research package — RAW data from all sources, no Haiku digestion.
+    Opus reads the raw 10-Ks, raw web research, raw competitor filings — full nuance preserved.
     """
-    company = results.get("meta", {}).get("name", "the company")
-
     if status_callback:
-        status_callback("Preparing research briefs from all sources...")
+        status_callback("Assembling research package...")
 
-    # Define what needs digesting (source_key, source_name, haiku_instruction)
-    digest_jobs = []
-
-    if results.get("sec_filing"):
-        digest_jobs.append(("sec_filing", "SEC 10-K Annual Filing",
-            "Extract the most investment-relevant points: key business segments and revenue mix, management's discussion of growth drivers and headwinds, specific risk factors that are material (not boilerplate), capital allocation priorities, and any forward-looking guidance or commitments. Note what management emphasizes vs what they downplay."))
-
-    if results.get("comp_filings"):
-        digest_jobs.append(("comp_filings", "Competitor SEC Filings",
-            "Focus on: how competitors describe their competitive advantages vs the target company, what risks they flag that could impact the target, where they're investing that could threaten the target's position, and any direct mentions of the target company or its products."))
-
-    if results.get("web_research"):
-        digest_jobs.append(("web_research", "Web Research (multiple sources)",
-            "Extract the key non-obvious signals: patent filings, hiring trends, product announcements, regulatory developments, supply chain changes, congressional trading, and competitive moves. Flag anything that contradicts or confirms the 10-K narrative."))
-
-    # Run Haiku digests in parallel
-    digested = {}
-    if digest_jobs:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-            futures = {}
-            for source_key, source_name, instruction in digest_jobs:
-                if status_callback:
-                    status_callback(f"Analyzing {source_name}...")
-                futures[executor.submit(
-                    _haiku_digest, results[source_key], source_name, company, instruction
-                )] = source_key
-
-            for future in concurrent.futures.as_completed(futures):
-                source_key = futures[future]
-                try:
-                    digested[source_key] = future.result(timeout=30)
-                except Exception:
-                    digested[source_key] = results[source_key][:5000]
-
-    # Assemble the final research package
     sections = []
 
     succeeded = results.get("sources_succeeded", [])
     failed = results.get("sources_failed", [])
-    sections.append(f"RESEARCH PACKAGE — {len(succeeded)} SOURCES ANALYZED")
+    sections.append(f"RESEARCH PACKAGE — {len(succeeded)} SOURCES")
     sections.append(f"Sources: {', '.join(succeeded)}")
     if failed:
         sections.append(f"Unavailable: {', '.join(failed)}")
     sections.append("")
 
-    # Structured data (already concise, pass through directly)
+    # All sources passed through raw — Opus has 200K context, can handle it
     if results.get("yahoo_finance"):
         sections.append("━━━ SOURCE 1: FINANCIAL DATA (Yahoo Finance) ━━━")
         sections.append(results["yahoo_finance"])
@@ -1112,10 +1074,9 @@ def build_full_context(results: dict, status_callback=None) -> str:
         sections.append("\n━━━ SOURCE 6: INSIDER TRANSACTIONS ━━━")
         sections.append(results["insider_transactions"])
 
-    # Digested sources (processed by Haiku)
-    if digested.get("sec_filing"):
-        sections.append("\n━━━ SOURCE 7: SEC 10-K FILING BRIEF (analyst-prepared) ━━━")
-        sections.append(digested["sec_filing"])
+    if results.get("sec_filing"):
+        sections.append("\n━━━ SOURCE 7: SEC 10-K FULL FILING ━━━")
+        sections.append(results["sec_filing"])
 
     if results.get("macro_data"):
         sections.append("\n━━━ SOURCE 8: MACRO ENVIRONMENT (FRED) ━━━")
@@ -1129,12 +1090,14 @@ def build_full_context(results: dict, status_callback=None) -> str:
         sections.append("\n━━━ SOURCE 10: COMPARABLE COMPANY VALUATION ━━━")
         sections.append(results["comp_table"])
 
-    if digested.get("comp_filings"):
-        sections.append("\n━━━ SOURCE 11: COMPETITOR FILING ANALYSIS (analyst-prepared) ━━━")
-        sections.append(digested["comp_filings"])
+    if results.get("comp_filings"):
+        sections.append("\n━━━ SOURCE 11: COMPETITOR 10-K FILINGS (raw excerpts) ━━━")
+        sections.append("Use these to understand how competitors describe THEIR competitive position,")
+        sections.append("what risks THEY flag, and where THEY see opportunities.")
+        sections.append(results["comp_filings"])
 
-    if digested.get("web_research"):
-        sections.append("\n━━━ SOURCE 12: WEB INTELLIGENCE BRIEF (analyst-prepared) ━━━")
-        sections.append(digested["web_research"])
+    if results.get("web_research"):
+        sections.append("\n━━━ SOURCE 12: WEB RESEARCH (raw scraped content) ━━━")
+        sections.append(results["web_research"])
 
     return "\n".join(sections)
