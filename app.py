@@ -16,11 +16,39 @@ if sys.platform == "win32":
     sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 from flask import Flask, render_template, request, jsonify
-import yfinance as yf
-import anthropic
-from sec_fetcher import fetch_sec_data, build_sec_summary
-from research_agent import run_full_research, build_full_context
-from lookup_tool import LookupTool, TOOL_DEFINITIONS, execute_tool
+
+# Heavy imports (yfinance, anthropic, beautifulsoup, lxml) are deferred to first request
+# to avoid Render's port-scan timeout. Flask binds the port instantly, then loads on demand.
+yf = None
+anthropic = None
+fetch_sec_data = None
+build_sec_summary = None
+run_full_research = None
+build_full_context = None
+LookupTool = None
+TOOL_DEFINITIONS = None
+execute_tool = None
+
+def _ensure_imports():
+    """Load heavy dependencies on first use."""
+    global yf, anthropic, fetch_sec_data, build_sec_summary
+    global run_full_research, build_full_context
+    global LookupTool, TOOL_DEFINITIONS, execute_tool
+    if yf is None:
+        import yfinance as _yf
+        import anthropic as _anthropic
+        from sec_fetcher import fetch_sec_data as _fsd, build_sec_summary as _bss
+        from research_agent import run_full_research as _rfr, build_full_context as _bfc
+        from lookup_tool import LookupTool as _LT, TOOL_DEFINITIONS as _TD, execute_tool as _et
+        yf = _yf
+        anthropic = _anthropic
+        fetch_sec_data = _fsd
+        build_sec_summary = _bss
+        run_full_research = _rfr
+        build_full_context = _bfc
+        LookupTool = _LT
+        TOOL_DEFINITIONS = _TD
+        execute_tool = _et
 
 app = Flask(__name__)
 
@@ -676,6 +704,7 @@ def index():
 @app.route("/api/analyze", methods=["POST"])
 def analyze():
     """Start an analysis job in background, return job_id for polling."""
+    _ensure_imports()
     body = request.get_json()
     ticker = body.get("ticker", "").strip().upper()
     session_id = body.get("session_id", ticker)
@@ -726,6 +755,7 @@ def poll(job_id):
 @app.route("/api/chat", methods=["POST"])
 def chat():
     """Start a chat job in background, return job_id for polling."""
+    _ensure_imports()
     body = request.get_json()
     session_id = body.get("session_id", "")
     question = body.get("question", "").strip()
