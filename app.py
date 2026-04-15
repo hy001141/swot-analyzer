@@ -527,106 +527,65 @@ Make 8-15 tool calls before writing the analysis. Be thorough."""
         job["text"] = final_text
         print(f"[GROUNDED] {ticker}: {tool_call_count} tool calls, {len(final_text)} chars output", flush=True)
 
-        # Step 2b: Dedicated recommendations pass with its own tool-use loop
-        # The main SWOT often produces obvious "watch X" recommendations. This pass
-        # forces Opus to cross-reference 2+ specific data points before writing each rec.
-        job["status"] = "Generating non-obvious signals..."
-        print(f"[REC-PASS] {ticker}: starting dedicated recommendations pass", flush=True)
+        # Step 2b: Recommendations refinement — single Opus call with full SWOT context, no tools
+        # Simpler and more reliable than tool-use loop. Opus rewrites recs using the rich draft as input.
+        job["status"] = "Refining recommendations..."
+        print(f"[REC-PASS] {ticker}: refining recommendations from full SWOT context", flush=True)
 
-        # SAVE original text in case the dedicated pass fails — we restore from this
         original_text = job["text"]
-
-        rec_initial_message = f"""Generate the SIGNALS TO MONITOR section for {ticker} ({meta.get('name','')}).
-
-THIS IS A SEPARATE TASK FROM THE FULL SWOT. You have only ONE job: produce 3-5 NON-OBVIOUS signals that a hedge fund PM should watch.
-
-⚠️ STRICT REQUIREMENTS:
-
-1. Each signal MUST cross-reference AT LEAST 2 different lookup tool results. A single-source signal is automatically rejected.
-
-2. Each signal MUST pass the OBVIOUSNESS TEST: would a 2nd-year banking analyst with a Bloomberg think of this in 30 seconds? If yes, REJECT IT.
-
-3. BANNED signals (these are too generic — DO NOT write them):
-   - "Watch for [segment] revenue mix shift"
-   - "Monitor Q4 guidance / capex / margins"
-   - "Track operating margin trajectory"
-   - "Watch for AI monetization commentary"
-   - "Calculate revenue per employee"
-   - "Monitor analyst estimate revisions"
-   - "Watch for buyback acceleration"
-   - "Track segment growth"
-   - Anything starting with "Watch for [obvious metric]"
-
-4. WHAT TO WRITE INSTEAD: signals that require putting two specific things together that no individual source reveals:
-   - "When [Competitor X's 10-Q discloses Y], cross-reference with [target's specific disclosure Z], because [mechanical relationship]"
-   - "Watch for [specific language change] in [specific filing] — historical pattern shows it precedes [specific event]"
-   - "If [unconventional source like patent filings, NeurIPS papers, court filings, third-party API metrics] shows [specific pattern], it signals [non-obvious derivative effect]"
-
-WORKFLOW (MANDATORY):
-1. Call lookup_competitor_10k for at least 2 named competitors with SPECIFIC queries (not generic)
-2. Call lookup_web_intelligence with at least 2 specific topics from the data sources
-3. Call lookup_10k_passage for at least 2 specific topics in the target's filing
-4. Call lookup_clinical_trials, lookup_insider_transactions, or lookup_short_interest as relevant
-5. Make AT LEAST 8 tool calls before writing
-6. THEN write 3-5 signals, each citing the specific tool results that informed it
-
-Each signal format:
-"**[Signal title]:** [What to watch for, in which specific source/disclosure]. [What it would mean — the mechanical reasoning]. [How it cross-references the data you retrieved]."
-
-Output ONLY the section starting with "## Recommendations" — no other content. Do not duplicate any other section of the analysis. Do not include intro text. Just "## Recommendations" followed by the 3-5 signals."""
-
-        rec_messages = [{"role": "user", "content": rec_initial_message}]
         rec_text = ""
         rec_tool_calls = 0
 
-        for rec_iteration in range(20):
-            try:
-                rec_response = client.messages.create(
-                    model="claude-opus-4-20250514",
-                    max_tokens=8000,
-                    system=SWOT_SYSTEM_PROMPT,
-                    tools=TOOL_DEFINITIONS,
-                    messages=rec_messages,
-                )
-            except Exception as rec_err:
-                print(f"[REC-PASS] Error: {rec_err}", flush=True)
-                break
+        rec_refinement_message = f"""Below is a draft SWOT analysis for {ticker} ({meta.get('name','')}). The Recommendations section is generic — your job is to REWRITE just the Recommendations section using the SPECIFIC details from the rest of the analysis.
 
-            stop_reason = rec_response.stop_reason
+DRAFT ANALYSIS:
 
-            assistant_blocks = []
+{original_text}
+
+INSTRUCTIONS:
+
+Read the analysis above carefully. Identify 3-5 SPECIFIC details mentioned (named competitors, named acquisitions, named segments, named programs, specific risks, specific financial line items, specific regulatory issues).
+
+Then write 3-5 non-obvious "signals to monitor" that CONNECT those specific details. Each signal should be something a senior PM would not think of in 30 seconds while reading the same data.
+
+🚨 BANNED phrases (REJECTED):
+- "Monitor Q4 guidance" / "track segment growth" / "watch for capex"
+- "Build long position" / "pair trade" / "sell puts" / portfolio actions
+- "Watch for [obvious metric]"
+- Any rec without a SPECIFIC named entity from the analysis
+
+✅ GOOD signals look like:
+"**[Specific connection title]:** Watch for [specific disclosure] from [specific named entity from analysis] — combined with [specific other detail from analysis], it would signal [non-obvious derivative effect]."
+
+OUTPUT FORMAT — start your response with "## Recommendations" and produce ONLY the recommendations section. No intro, no other sections, no commentary. 3-5 bullet points, each with a bolded title, each connecting specific named details from the analysis above.
+
+## Recommendations
+- **[Title]:** [Specific signal connecting named details from the draft]
+- ...
+"""
+
+        try:
+            rec_response = client.messages.create(
+                model="claude-opus-4-20250514",
+                max_tokens=4000,
+                messages=[{"role": "user", "content": rec_refinement_message}],
+            )
             for block in rec_response.content:
-                assistant_blocks.append(block.model_dump() if hasattr(block, 'model_dump') else block.__dict__)
+                if hasattr(block, 'type') and block.type == "text":
+                    rec_text += block.text
+            print(f"[REC-PASS] {ticker}: refinement returned {len(rec_text)} chars", flush=True)
+        except Exception as rec_err:
+            import traceback
+            print(f"[REC-PASS] Error: {rec_err}\n{traceback.format_exc()}", flush=True)
 
-            rec_messages.append({"role": "assistant", "content": [
-                {k: v for k, v in b.items() if k in ("type", "text", "id", "name", "input")}
-                for b in assistant_blocks
-            ]})
+        # Replace the original recommendations with the fresh ones if valid
+        # Make the validity check lenient — accept any reasonable rec text
+        rec_text_clean = rec_text.strip() if rec_text else ""
+        # Ensure the rec_text starts with the header
+        if rec_text_clean and "## Recommendations" not in rec_text_clean:
+            rec_text_clean = "## Recommendations\n\n" + rec_text_clean
 
-            if stop_reason == "tool_use":
-                tool_results = []
-                for block in rec_response.content:
-                    if hasattr(block, 'type') and block.type == "tool_use":
-                        rec_tool_calls += 1
-                        job["status"] = f"Cross-referencing for signals (call #{rec_tool_calls})... {block.name}"
-                        print(f"[REC-TOOL] {ticker}: {block.name}({block.input})", flush=True)
-                        result = execute_tool(block.name, block.input or {}, lookup)
-                        tool_results.append({
-                            "type": "tool_result",
-                            "tool_use_id": block.id,
-                            "content": result,
-                        })
-                rec_messages.append({"role": "user", "content": tool_results})
-                continue
-
-            if stop_reason in ("end_turn", "stop_sequence", "max_tokens"):
-                for block in rec_response.content:
-                    if hasattr(block, 'type') and block.type == "text":
-                        rec_text += block.text
-                break
-
-        # Replace the original recommendations with the fresh ones — but ONLY if the new ones are valid
-        if rec_text and "## Recommendations" in rec_text and len(rec_text.strip()) > 200:
+        if rec_text_clean and len(rec_text_clean) > 150:
             # Strip the original Recommendations from the saved text
             if "## Recommendations" in original_text:
                 before_rec = original_text.split("## Recommendations", 1)[0].rstrip()
@@ -643,14 +602,14 @@ Output ONLY the section starting with "## Recommendations" — no other content.
             # Insert fresh recs before Key Questions if present, else append
             if "## Key Questions" in stripped_text:
                 parts = stripped_text.split("## Key Questions", 1)
-                job["text"] = parts[0].rstrip() + "\n\n" + rec_text.strip() + "\n\n## Key Questions" + parts[1]
+                job["text"] = parts[0].rstrip() + "\n\n" + rec_text_clean + "\n\n## Key Questions" + parts[1]
             else:
-                job["text"] = stripped_text.rstrip() + "\n\n" + rec_text.strip()
-            print(f"[REC-PASS] {ticker}: {rec_tool_calls} tool calls, {len(rec_text)} chars added", flush=True)
+                job["text"] = stripped_text.rstrip() + "\n\n" + rec_text_clean
+            print(f"[REC-PASS] {ticker}: REPLACED recs ({len(rec_text_clean)} chars)", flush=True)
         else:
             # Failed — keep the original SWOT with its original Recommendations intact
             job["text"] = original_text
-            print(f"[REC-PASS] {ticker}: dedicated pass failed (text len={len(rec_text)}), keeping original recs", flush=True)
+            print(f"[REC-PASS] {ticker}: skipped — rec_text too short ({len(rec_text_clean)} chars), keeping original", flush=True)
 
         # Step 2c: Check if Key Questions has at least a couple numbered items — if not, regenerate
         questions_section = ""
