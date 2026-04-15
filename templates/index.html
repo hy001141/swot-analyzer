@@ -769,7 +769,7 @@
 
   <!-- Key Questions — placed right above the chat so users can click a question to ask it -->
   <div id="questionsSection" class="analysis-section" style="display:none;">
-    <div class="section-title">Three Key Questions</div>
+    <div class="section-title">Key Questions</div>
     <div id="questionsContent"></div>
   </div>
 
@@ -850,6 +850,8 @@
     "10": "Comparable company valuation table",
     "11": "Competitor SEC 10-K filings",
     "12": "Web intelligence (patents, jobs, earnings calls, congressional trading)",
+    "13": "SEC XBRL structured facts (real quarterly/annual line items)",
+    "14": "ClinicalTrials.gov pipeline (trial phases, status, completion dates)",
   };
 
   // Global reference to the current web citations (set when meta arrives)
@@ -969,7 +971,9 @@
     }
 
     // Key Questions — parse numbered questions using matchAll
-    const questions = extractSection(text, "Three Key Questions");
+    // Try "Key Questions" first, then fall back to old "Three Key Questions" for compatibility
+    let questions = extractSection(text, "Key Questions");
+    if (!questions) questions = extractSection(text, "Three Key Questions");
     if (questions) {
       // Match each numbered question: capture from "N." to the next "N." or end
       // Use matchAll with a pattern that captures the content of each numbered item
@@ -1006,8 +1010,8 @@
     if (!dcf) dcf = extractSection(text, "DCF");
     if (!dcf) dcf = extractSection(text, "Valuation");
     if (!dcf) {
-      // Fallback: look for "Current metrics" block anywhere after Three Key Questions
-      const afterQuestions = text.split("## Three Key Questions")[1] || "";
+      // Fallback: look for "Current metrics" block anywhere after Key Questions
+      const afterQuestions = text.split("## Key Questions")[1] || text.split("## Three Key Questions")[1] || "";
       if (afterQuestions.includes("**Current metrics") || afterQuestions.includes("Implied assumptions") || afterQuestions.includes("Bear / Base / Bull")) {
         // Everything after the last numbered question
         const dcfStart = afterQuestions.search(/\n## |\n\*\*Current metrics|\n\*\*Implied/);
@@ -1169,10 +1173,10 @@
         // Check if done
         if (data.done) {
           const hasSwot = accumulatedText.includes("## Strengths") || accumulatedText.includes("## Weaknesses");
-          // Only consider complete if we have the LAST section (Three Key Questions) with actual content after it
+          // Only consider complete if we have the LAST section (Key Questions) with actual content after it
           const hasAllFour = /## Strengths/i.test(accumulatedText) && /## Weaknesses/i.test(accumulatedText) && /## Opportunities/i.test(accumulatedText) && /## Threats/i.test(accumulatedText);
-          const hasQuestions = accumulatedText.includes("## Three Key Questions");
-          const questionsContent = hasQuestions ? accumulatedText.split("## Three Key Questions")[1].trim() : "";
+          const hasQuestions = accumulatedText.includes("## Key Questions") || accumulatedText.includes("## Three Key Questions");
+          const questionsContent = hasQuestions ? (accumulatedText.split("## Key Questions")[1] || accumulatedText.split("## Three Key Questions")[1] || "").trim() : "";
           const isComplete = hasAllFour && hasQuestions && questionsContent.length > 100;
 
           // Auto-retry if partial (has some SWOT but incomplete)

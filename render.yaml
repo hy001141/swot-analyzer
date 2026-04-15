@@ -3,7 +3,7 @@ services:
     name: swot-analyzer
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 300 --workers 2 --threads 4
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 300 --workers 1 --threads 8 --preload
     envVars:
       - key: ANTHROPIC_API_KEY
         sync: false

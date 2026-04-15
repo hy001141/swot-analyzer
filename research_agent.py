@@ -21,14 +21,15 @@ from typing import Callable
 import yfinance as yf
 import anthropic
 
-from sec_fetcher import fetch_sec_data, build_sec_summary
+from sec_fetcher import fetch_sec_data, build_sec_summary, get_cik
+from deep_sources import fetch_clinical_trials, fetch_sec_xbrl_facts
 
 # ── Configuration ────────────────────────────────────────────────────────
 
 BRAVE_API_KEY = os.environ.get("BRAVE_API_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
 WEB_TIMEOUT = 10  # seconds per web request
-MAX_BRAVE_QUERIES = 12
+MAX_BRAVE_QUERIES = 20
 
 
 # ── Data Sources (all independent, all have try/except) ──────────────────
@@ -452,14 +453,14 @@ def run_brave_research(queries: list[str], status_callback: Callable = None) -> 
             unique_results.append(r)
 
     if status_callback:
-        status_callback(f"Analyzing {len(unique_results[:12])} web sources...")
+        status_callback(f"Analyzing {len(unique_results[:24])} web sources...")
 
     # Scrape top results in parallel
     scraped = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
         future_to_result = {
-            executor.submit(scrape_url, r["url"], 3000): r
-            for r in unique_results[:12]
+            executor.submit(scrape_url, r["url"], 7000): r
+            for r in unique_results[:24]
         }
         for future in concurrent.futures.as_completed(future_to_result):
             result = future_to_result[future]
@@ -592,7 +593,7 @@ def fetch_competitor_data(comp_ticker: str) -> dict:
         sec = fetch_sec_data(comp_ticker)
         if sec.get("annual_filing"):
             # Take less for competitors — just enough for Claude to understand their positioning
-            result["filing_excerpt"] = sec["annual_filing"][:15000]
+            result["filing_excerpt"] = sec["annual_filing"][:25000]
     except Exception as e:
         print(f"[COMP] Error fetching {comp_ticker} 10-K: {e}")
 
@@ -740,10 +741,27 @@ def get_research_queries(ticker: str, company_name: str, sector: str) -> list[st
         f'"{company_name}" research paper 2026 site:arxiv.org OR "published research"',
         # Congressional trading
         f'"{ticker}" congressional trading Pelosi Senate disclosure 2026',
-        # Earnings call analyst questions (what's on analysts' minds)
+        # Earnings call analyst questions
         f'"{company_name}" earnings call transcript analyst questions concerns 2026',
         # Competitor moves specifically naming the target
         f'competitor vs "{company_name}" threat market share 2026',
+        # DEEP STAT QUERIES — target specific numerical disclosures to prevent fabrication
+        # Q3/Q4 guidance specifics
+        f'"{ticker}" Q3 2026 guidance revenue outlook segment',
+        # Management metrics from earnings prepared remarks
+        f'"{company_name}" Q4 2025 earnings segment revenue breakdown growth',
+        # Analyst price targets and consensus estimates
+        f'"{ticker}" price target analyst consensus 2026 upgrade downgrade',
+        # Specific operational metrics (depends on sector — captures whichever applies)
+        f'"{company_name}" capacity utilization backlog pipeline 2026 metrics',
+        # Clinical trial or product pipeline stats (pharma/tech)
+        f'"{company_name}" trial results efficacy success rate 2025 2026',
+        # Cohort/customer economics
+        f'"{company_name}" customer retention churn ARPU LTV 2026',
+        # Management commentary on margin trends
+        f'"{company_name}" gross margin operating margin commentary Q4 2025',
+        # Supply chain or partnership specifics
+        f'"{company_name}" partnership agreement deal value 2025 2026',
     ]
 
     # Add Sonnet-generated creative queries
@@ -801,6 +819,8 @@ def run_full_research(ticker: str, status_callback: Callable = None) -> dict:
         "institutional_changes": "",
         "macro_data": "",
         "app_store": "",
+        "clinical_trials": "",
+        "xbrl_facts": "",
         "web_research": "",
         "web_citations": [],
         "sources_succeeded": [],
@@ -897,7 +917,7 @@ def run_full_research(ticker: str, status_callback: Callable = None) -> dict:
     # Step 2: Run independent sources in parallel
     _status("Gathering intelligence from multiple sources...")
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         # SEC filings
         sec_future = executor.submit(
             fetch_sec_data, ticker, lambda m: _status(m)
@@ -923,6 +943,12 @@ def run_full_research(ticker: str, status_callback: Callable = None) -> dict:
 
         # App store (only for consumer-facing companies)
         app_future = executor.submit(fetch_app_store_data, company_name)
+
+        # Clinical trials (only useful for pharma/biotech — returns empty otherwise)
+        clinical_future = executor.submit(fetch_clinical_trials, company_name)
+
+        # SEC XBRL structured facts (real financial line items)
+        xbrl_future = executor.submit(fetch_sec_xbrl_facts, get_cik(ticker) or "", ticker)
 
         # Haiku research queries (needs company name)
         _status("Planning targeted research...")
@@ -989,6 +1015,24 @@ def run_full_research(ticker: str, status_callback: Callable = None) -> dict:
                 results["sources_succeeded"].append("App Store Rankings")
         except Exception:
             pass  # Not critical, don't report as failure
+
+        # Clinical trials (only for pharma/biotech)
+        try:
+            clinical_data = clinical_future.result(timeout=20)
+            if clinical_data:
+                results["clinical_trials"] = clinical_data
+                results["sources_succeeded"].append("ClinicalTrials.gov")
+        except Exception as e:
+            print(f"[CLINICAL] Error: {e}")
+
+        # SEC XBRL structured facts
+        try:
+            xbrl_data = xbrl_future.result(timeout=20)
+            if xbrl_data:
+                results["xbrl_facts"] = xbrl_data
+                results["sources_succeeded"].append("SEC XBRL Structured Data")
+        except Exception as e:
+            print(f"[XBRL] Error: {e}")
 
         # Get full query set (hardcoded alpha signals + Sonnet creative queries)
         try:
@@ -1116,9 +1160,13 @@ def build_full_context(results: dict, status_callback=None) -> str:
     add_source("EARNINGS SURPRISE HISTORY", results.get("earnings_history", ""))
     add_source("INSTITUTIONAL OWNERSHIP CHANGES", results.get("institutional_changes", ""))
     add_source("INSIDER TRANSACTIONS", results.get("insider_transactions", ""))
+    add_source("SEC XBRL STRUCTURED FACTS (real quarterly/annual line items from XBRL)",
+               results.get("xbrl_facts", ""))
     add_source("SEC 10-K / 10-Q FULL FILING TEXT", results.get("sec_filing", ""))
     add_source("MACRO ENVIRONMENT (FRED)", results.get("macro_data", ""))
     add_source("APP STORE DATA", results.get("app_store", ""))
+    add_source("CLINICAL TRIALS PIPELINE (ClinicalTrials.gov)",
+               results.get("clinical_trials", ""))
     add_source("COMPARABLE COMPANY VALUATION", results.get("comp_table", ""))
     add_source("COMPETITOR SEC 10-K FILINGS", results.get("comp_filings", ""))
     add_source("WEB INTELLIGENCE (news, patents, jobs, research papers, congressional trading)",

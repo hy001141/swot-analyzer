@@ -179,7 +179,7 @@ def fetch_sec_data(ticker: str, status_callback=None) -> dict:
             status_callback(f"Downloading 10-K ({ten_k['date']})...")
         text = download_filing(ten_k["url"])
         if text:
-            result["annual_filing"] = smart_truncate(text, max_chars=50000)
+            result["annual_filing"] = smart_truncate(text, max_chars=80000)
             result["annual_type"] = "10-K"
             result["annual_date"] = ten_k["date"]
 
