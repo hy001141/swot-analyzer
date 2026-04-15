@@ -193,10 +193,10 @@ STRONG (accepted):
 "Alphabet's FY2025 10-K [7] discloses a server depreciation schedule extension from 4 to 6 years — adding ~$3.5B to operating income. Comparable hyperscalers AMZN/MSFT/META still use 4-year schedules per their 10-Ks [11]. This accounting asymmetry inflates Alphabet's reported cloud margins by ~200bps vs peers on a like-for-like basis. A PM should apply this haircut when valuing GOOG's cloud segment against Azure/AWS multiples in the comp table [10]."
 
 WEAK (rejected):
-"Hiring in AI suggests investment"
+"Strong revenue growth of 15% YoY [1]"
 
 STRONG (accepted):
-"LinkedIn job postings [12] show Alphabet is actively hiring 'silicon validation engineers for next-generation TPU v7' with specific expertise in 'HBM3e integration' and '3nm process verification' — simultaneously, Broadcom's Q2 transcript [12] disclosed its 'largest custom silicon customer' represents 18% of networking revenue, up from 12% YoY. Cross-referencing these: Alphabet's Q3 2026 launch of TPU v7 is being validated NOW, and Broadcom's AVGO-disclosed concentration confirms Alphabet is accelerating silicon spend ahead of AWS/Azure. This signals a data center capex beat in Q4 2026 that consensus [3] currently models conservatively."
+"Working capital dynamics reveal underappreciated demand strength: deferred revenue grew 28% YoY [7] while AR days outstanding DROPPED from 52 to 44 [1] — a rare combination that signals customers are pre-paying for future services faster than management is recognizing revenue. Consensus [3] models flat margins through 2026, but this cash-collection pattern historically precedes 200-400bps operating leverage. Competitor CRM showed the same pattern in 2022 before a 15x return [11]."
 
 YOUR MENTAL CHECKLIST FOR EVERY POINT:
 Before writing any point, ask: "Could a first-year analyst produce this from the 10-K alone?" If yes, delete it and find something that required cross-referencing multiple sources. Think mechanically:
@@ -213,6 +213,8 @@ Before writing any point, ask: "Could a first-year analyst produce this from the
 CONSIDER EVERY SOURCE — but weigh them by relevance. You don't have to cite every source (e.g., App Store data is irrelevant for JPMorgan) but you must READ and WEIGH every source before writing. If a source is irrelevant, you've consciously decided — not overlooked it.
 
 CITATION FORMAT: Use bracketed numbers throughout. Example: "Operating margin expanded 180bps [1] while insider buying accelerated from 2 transactions to 7 [6], confirming the guidance raise flagged in the Q3 8-K [7]."
+
+VARY YOUR OPENING — Don't default to hiring signals, patent filings, or LinkedIn scrapes as the first point in every section. Those are supplemental insights, not thesis-defining ones. The lead bullet in each section should feel like the most natural thing to say about this specific company — for a margin story, lead with margins; for a cyclical, lead with cycle positioning; for a moat story, lead with the moat mechanism. Don't force novelty — let each company's actual thesis drive the order.
 
 ═══════════════════════════════════════════════════════════════
 OUTPUT FORMAT — NON-NEGOTIABLE
@@ -362,16 +364,22 @@ Your job: REWRITE this SWOT to be mechanically rigorous and non-obvious. Apply t
 - REJECT any point that could appear in a Goldman Sachs or Morgan Stanley research note
 - REJECT any point a first-year banking analyst could generate from the 10-K alone
 - REJECT any point that doesn't cross-reference at least 2 sources
-- REPLACE rejected points with mechanical/structural insights that require specific reasoning:
+- REPLACE rejected points with mechanical/structural insights. Vary your angles — do NOT default to hiring/job postings as the #1 insight:
   * Accounting policy differences vs peers (depreciation schedules, rev rec, capitalization)
   * Language shifts in management commentary quarter-over-quarter
   * Supply chain triangulation (infer from named suppliers/customers in competitor 10-Ks)
   * Counter-positioning (what the target does that competitors structurally CANNOT replicate)
   * Working capital abnormalities (inventory, DSO, deferred revenue trends)
+  * Segment mix shifts consensus hasn't caught up to
   * Options skew / put-call ratios at specific strikes
   * Insider transaction patterns (WHICH insiders, WHEN, not just count)
   * Earnings beat/miss patterns (consistent beats = sandbagging)
   * Stock-based comp as % of FCF (true owner earnings)
+  * Patent filing clusters revealing R&D priorities
+  * Hiring signals (USE THIS ONLY IF IT IS GENUINELY THE TOP INSIGHT — not by default)
+  * Regulatory filings and court cases the market is ignoring
+
+Don't force every section to OPEN with a hiring/LinkedIn/patent signal. Vary the lead bullet — for some companies that's margins, for others it's supply chain, for others it's management incentives. Let each company's real thesis drive what comes first.
 
 OUTPUT FORMAT: Return the COMPLETE rewritten SWOT with all 8 sections using these exact headers:
 ## Strengths
