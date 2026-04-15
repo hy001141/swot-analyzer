@@ -340,10 +340,12 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
         # Step 2b: Anti-obvious self-critique pass
         # Opus reads its own output, identifies generic points, and rewrites them with mechanical insights
         job["status"] = "Pressure-testing analysis for non-obvious insights..."
-        print(f"[CRITIQUE] {ticker}: running self-critique pass", flush=True)
+        pre_critique_len = len(job["text"])
+        print(f"[CRITIQUE] {ticker}: running self-critique pass (pre-len={pre_critique_len})", flush=True)
 
         try:
-            critique_response = client.messages.create(
+            critique_client = anthropic.Anthropic(api_key=api_key, timeout=300.0)
+            critique_response = critique_client.messages.create(
                 model="claude-opus-4-20250514",
                 max_tokens=16000,
                 messages=[{
@@ -396,14 +398,22 @@ Do NOT include any commentary about what you changed. Just output the rewritten 
             else:
                 print(f"[CRITIQUE] {ticker}: critique output invalid, keeping original", flush=True)
         except Exception as crit_err:
-            print(f"[CRITIQUE] Error: {crit_err}", flush=True)
+            import traceback
+            print(f"[CRITIQUE] Error: {crit_err}\n{traceback.format_exc()}", flush=True)
 
-        # Step 2c: If Three Key Questions is STILL missing or empty after critique, generate it separately
+        # Step 2c: Check if Three Key Questions has all 3 numbered questions — if not, regenerate
         questions_section = ""
         if "## Three Key Questions" in job["text"]:
-            questions_section = job["text"].split("## Three Key Questions", 1)[1].strip()
+            after = job["text"].split("## Three Key Questions", 1)[1]
+            # Cut at next ## header (e.g. Reverse DCF appended later)
+            next_header_idx = after.find("\n## ")
+            questions_section = after[:next_header_idx].strip() if next_header_idx >= 0 else after.strip()
 
-        if len(questions_section) < 100:
+        # Count numbered questions (1. 2. 3.)
+        import re as _re
+        numbered_count = len(_re.findall(r'(?:^|\n)\s*\d+\.\s+', questions_section))
+
+        if numbered_count < 3 or len(questions_section) < 200:
             job["status"] = "Generating key questions..."
             print(f"[QUESTIONS] {ticker}: generating questions separately ({len(questions_section)} chars)", flush=True)
 
@@ -441,10 +451,12 @@ Respond with ONLY this format, nothing else:
 
         # Step 2d: Reverse DCF section — what is the market currently pricing in?
         job["status"] = "Running reverse DCF analysis..."
-        print(f"[DCF] {ticker}: running reverse DCF", flush=True)
+        pre_dcf_len = len(job["text"])
+        print(f"[DCF] {ticker}: running reverse DCF (pre-len={pre_dcf_len})", flush=True)
 
         try:
-            dcf_response = client.messages.create(
+            dcf_client = anthropic.Anthropic(api_key=api_key, timeout=180.0)
+            dcf_response = dcf_client.messages.create(
                 model="claude-opus-4-20250514",
                 max_tokens=3000,
                 messages=[{
@@ -490,11 +502,15 @@ Use realistic numbers grounded in the actual financial data. Show your work if a
                 }]
             )
             dcf_text = dcf_response.content[0].text.strip()
+            # Ensure the ## Reverse DCF header is present
+            if "## Reverse DCF" not in dcf_text and "## DCF" not in dcf_text:
+                dcf_text = "## Reverse DCF — What the Market is Pricing In\n\n" + dcf_text
             # Append to the main output
             job["text"] = job["text"].rstrip() + "\n\n" + dcf_text
-            print(f"[DCF] {ticker}: reverse DCF added ({len(dcf_text)} chars)", flush=True)
+            print(f"[DCF] {ticker}: reverse DCF added ({len(dcf_text)} chars, total now {len(job['text'])})", flush=True)
         except Exception as dcf_err:
-            print(f"[DCF] Error: {dcf_err}", flush=True)
+            import traceback
+            print(f"[DCF] Error: {dcf_err}\n{traceback.format_exc()}", flush=True)
 
         # Store conversation with FULL context for follow-up questions
         conversations[session_id] = [
