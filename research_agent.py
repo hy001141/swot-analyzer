@@ -489,22 +489,43 @@ def run_brave_research(queries: list[str], status_callback: Callable = None) -> 
 # ── Competitor Analysis ───────────────────────────────────────────────────
 
 def identify_competitors(ticker: str, company_name: str, sector: str, industry: str) -> list[str]:
-    """Ask Haiku to identify 4-5 closest public company competitors."""
+    """Ask Sonnet to identify 4-5 PURE-PLAY public company competitors."""
     if not ANTHROPIC_API_KEY:
         return []
 
     try:
         client = anthropic.Anthropic()
         response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=200,
+            model="claude-sonnet-4-20250514",
+            max_tokens=400,
             messages=[{
                 "role": "user",
-                "content": f"""For {company_name} ({ticker}), sector: {sector}, industry: {industry}.
+                "content": f"""You are an equity research analyst building a comp set for {company_name} ({ticker}).
 
-List the 4-5 closest PUBLIC company competitors by revenue overlap and market positioning. Only US-listed tickers.
+Sector: {sector}
+Industry: {industry}
 
-Return ONLY a JSON array of ticker strings. No explanation. Example: ["META", "SNAP", "PINS", "TTD"]"""
+Identify the 4-5 BEST comparable public companies for valuation analysis. A good comp:
+- Generates revenue from the SAME core business line as {company_name}
+- Has similar business model and unit economics
+- Would move on similar catalysts/news
+- Is what a sell-side analyst would put in a real comp table
+
+A BAD comp:
+- Mega-cap conglomerates that happen to compete in one segment (e.g. don't put AAPL/AMZN/MSFT in a comp set unless they're truly pure-play competitors)
+- Different business models (e.g. don't compare a SaaS company to a hardware company)
+- Companies in entirely different industries
+
+For example:
+- For Google's search/ads business: META, PINS, SNAP, TTD (NOT AMZN/MSFT — wrong scale)
+- For Tesla EV business: RIVN, LCID, NIO, F, GM (auto OEMs, not Apple)
+- For Netflix streaming: WBD, PARA, DIS, SPOT (media/streaming pure-plays)
+- For Stripe-like payments: PYPL, SQ, ADYEY, V, MA
+- For NVIDIA: AMD, INTC, AVGO, TSM, MU (semis, not META/GOOG)
+
+Think about what THIS specific company actually does for revenue, then find true peers.
+
+Return ONLY a JSON array of 4-5 ticker strings. No explanation. Example: ["META", "PINS", "SNAP", "TTD"]"""
             }]
         )
         text = response.content[0].text.strip()
@@ -602,10 +623,25 @@ def run_competitor_analysis(ticker: str, company_name: str, sector: str, industr
     if not comp_data:
         return result
 
+    # Also fetch the target company's data to include in the comp table
+    target_data = None
+    try:
+        if status_callback:
+            status_callback(f"Adding {ticker} to comp table...")
+        target_data = fetch_competitor_data(ticker)
+        # Mark it as the target so the table can highlight it
+        if target_data and target_data.get("financials", {}).get("name"):
+            target_data["is_target"] = True
+    except Exception as e:
+        print(f"[COMP] Error fetching target data: {e}")
+
     result["competitors"] = comp_data
 
-    # Build comp table
-    result["comp_table"] = _build_comp_table(comp_data)
+    # Build comp table — peers first, target last
+    table_data = list(comp_data)
+    if target_data:
+        table_data.append(target_data)
+    result["comp_table"] = _build_comp_table(table_data)
 
     # Build competitor filing summaries
     filing_lines = []
@@ -639,8 +675,13 @@ def _build_comp_table(comp_data: list[dict]) -> str:
     lines = ["COMPARABLE COMPANY ANALYSIS:"]
     lines.append("")
 
-    # Header
-    tickers = [c["ticker"] for c in comp_data]
+    # Header — mark target with asterisk so frontend can highlight
+    tickers = []
+    for c in comp_data:
+        t = c["ticker"]
+        if c.get("is_target"):
+            t = f"*{t}*"  # markers for frontend to detect target column
+        tickers.append(t)
     header = f"{'Metric':<22}" + "".join(f"{t:>12}" for t in tickers)
     lines.append(header)
     lines.append("-" * len(header))

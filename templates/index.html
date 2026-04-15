@@ -533,6 +533,17 @@
       font-weight: 600;
     }
     .comp-table tr:hover td { background: #0a0a0a; }
+    .comp-table th.target {
+      color: #00ddff;
+      border-bottom-color: #00ddff;
+      background: rgba(0, 221, 255, 0.05);
+    }
+    .comp-table td.target {
+      color: #00ddff;
+      font-weight: 600;
+      background: rgba(0, 221, 255, 0.05);
+      border-left: 1px solid rgba(0, 221, 255, 0.2);
+    }
 
     /* Scrollbar */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
@@ -800,25 +811,35 @@
 
     const tableEl = document.getElementById("compTable");
     let html = "";
+    let targetCols = [];  // indices of target columns (marked with *TICKER*)
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
-      // Skip separator lines
       if (line.match(/^[-─]+$/)) continue;
-      // Skip the title line
       if (line.startsWith("COMPARABLE")) continue;
 
-      const cells = line.split(/\s{2,}/);  // split on 2+ spaces
+      const cells = line.split(/\s{2,}/);
       if (cells.length < 2) continue;
 
-      if (i <= 2 && (line.includes("Metric") || cells[0] === "Metric" || !html)) {
-        // Header row
+      if (!html) {
+        // Header row — detect target columns by *TICKER* markers
         html += "<thead><tr>";
-        cells.forEach(c => html += `<th>${c.trim()}</th>`);
+        cells.forEach((c, idx) => {
+          const cleaned = c.trim();
+          if (cleaned.startsWith("*") && cleaned.endsWith("*")) {
+            targetCols.push(idx);
+            html += `<th class="target">${cleaned.replace(/\*/g, "")}</th>`;
+          } else {
+            html += `<th>${cleaned}</th>`;
+          }
+        });
         html += "</tr></thead><tbody>";
       } else {
         html += "<tr>";
-        cells.forEach(c => html += `<td>${c.trim()}</td>`);
+        cells.forEach((c, idx) => {
+          const cls = targetCols.includes(idx) ? ' class="target"' : '';
+          html += `<td${cls}>${c.trim()}</td>`;
+        });
         html += "</tr>";
       }
     }
