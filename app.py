@@ -323,6 +323,49 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
                 else:
                     raise api_err
 
+        # Step 2b: If Three Key Questions is missing or empty, generate it separately
+        questions_section = ""
+        if "## Three Key Questions" in job["text"]:
+            questions_section = job["text"].split("## Three Key Questions", 1)[1].strip()
+
+        if len(questions_section) < 100:
+            job["status"] = "Generating key questions..."
+            print(f"[QUESTIONS] {ticker}: generating questions separately ({len(questions_section)} chars)", flush=True)
+
+            # Remove any empty/incomplete Three Key Questions from main text
+            if "## Three Key Questions" in job["text"]:
+                job["text"] = job["text"].rsplit("## Three Key Questions", 1)[0].rstrip()
+
+            try:
+                q_response = client.messages.create(
+                    model="claude-opus-4-20250514",
+                    max_tokens=2000,
+                    messages=[{
+                        "role": "user",
+                        "content": f"""Here is a SWOT analysis for {ticker} ({meta.get('name','')}):
+
+{job['text']}
+
+Based on this analysis, produce exactly 3 non-obvious, highly specific questions a hedge fund PM should investigate before sizing this position. Each question must:
+- Reference specific numbers, metrics, or disclosures from the analysis above
+- Be answerable through channel checks, expert calls, or further data analysis
+- NOT be generic (no "is management capable?")
+- Be 2-3 sentences long with specific context
+
+Respond with ONLY this format, nothing else:
+
+## Three Key Questions
+1. [First question with specific details and numbers from the analysis]
+2. [Second question with specific details and numbers]
+3. [Third question with specific details and numbers]"""
+                    }]
+                )
+                q_text = q_response.content[0].text.strip()
+                # Append cleanly
+                job["text"] = job["text"].rstrip() + "\n\n" + q_text
+            except Exception as q_err:
+                print(f"[QUESTIONS] Error: {q_err}", flush=True)
+
         # Store conversation with FULL context for follow-up questions
         # This lets the chat answer detailed questions about specific 10-K sections, financials, etc.
         conversations[session_id] = [
