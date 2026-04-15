@@ -262,24 +262,36 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
 
         research = run_full_research(ticker, status_callback=research_status)
 
-        # Check if we got any data at all
+        # Check if we got meaningful data — accept if ANY source worked
         meta = research.get("meta", {})
-        if not meta.get("name") or meta["name"] == ticker:
-            # Try basic yfinance as fallback
+        has_any_data = (
+            research.get("yahoo_finance") or
+            research.get("sec_filing") or
+            research.get("comp_table") or
+            (meta.get("name") and meta["name"] != ticker)
+        )
+
+        if not has_any_data:
+            # Try yfinance one more time as a last resort
             try:
                 stock = yf.Ticker(ticker)
                 info = stock.info or {}
-                if not info.get("longName"):
-                    job["error"] = f"Could not fetch data for '{ticker}'. Check the ticker symbol."
-                    job["done"] = True
-                    return
-                meta["name"] = info.get("longName", ticker)
-                meta["sector"] = info.get("sector", "")
-                meta["industry"] = info.get("industry", "")
+                if info.get("longName") or info.get("shortName"):
+                    meta["name"] = info.get("longName") or info.get("shortName", ticker)
+                    meta["sector"] = info.get("sector", "")
+                    meta["industry"] = info.get("industry", "")
+                    has_any_data = True
             except:
-                job["error"] = f"Could not fetch data for '{ticker}'. Check the ticker symbol."
-                job["done"] = True
-                return
+                pass
+
+        if not has_any_data:
+            job["error"] = f"Could not fetch data for '{ticker}'. Check the ticker symbol."
+            job["done"] = True
+            return
+
+        # Ensure we have a name for display
+        if not meta.get("name") or meta["name"] == ticker:
+            meta["name"] = ticker
 
         # Add comp table and sources to meta for frontend
         meta["comp_table"] = research.get("comp_table", "")
