@@ -900,22 +900,51 @@
     // Key Questions — render as clickable pills
     const questions = extractSection(text, "Three Key Questions");
     if (questions) {
-      const lines = questions.split('\n').filter(l => l.trim().match(/^\d+\./));
+      // Match "1. ...", "2. ..." handling multi-line questions and bold markers
+      // Split by numbered markers at start of line
+      const parts = questions.split(/(?:^|\n)\s*(\d+)\.\s+/).filter(s => s && s.trim());
+      // After split, we get [num, content, num, content, ...] — pair them
+      const pairs = [];
+      for (let i = 0; i < parts.length - 1; i += 2) {
+        if (/^\d+$/.test(parts[i])) {
+          pairs.push(parts[i + 1]);
+        }
+      }
+      // Fallback if split didn't work: try a simpler approach
+      const lines = pairs.length > 0 ? pairs : questions.split('\n').filter(l => l.trim().match(/^\d+\./)).map(l => l.replace(/^\d+\.\s*/, ''));
+
       const container = document.getElementById("questionsContent");
       container.innerHTML = "";
-      lines.forEach((line, i) => {
-        const q = line.replace(/^\d+\.\s*/, '').replace(/\*\*/g, '').trim();
+      lines.forEach((rawQ, i) => {
+        // Clean up: remove bold markers and trailing whitespace, collapse multi-line
+        const q = rawQ.replace(/\*\*/g, '').replace(/\s+/g, ' ').trim();
+        if (!q) return;
         const el = document.createElement("div");
         el.className = "question-item";
         el.innerHTML = `<div class="question-num">${i+1}</div><div class="question-text">${q}</div>`;
         el.onclick = () => { document.getElementById("chatInput").value = q; document.getElementById("chatInput").focus(); };
         container.appendChild(el);
       });
-      document.getElementById("questionsSection").style.display = "block";
+      if (lines.length > 0) {
+        document.getElementById("questionsSection").style.display = "block";
+      }
     }
 
-    // Reverse DCF (can be under "Reverse DCF" or "Reverse DCF — What the Market is Pricing In")
-    const dcf = extractSection(text, "Reverse DCF");
+    // Reverse DCF — try multiple header variations
+    let dcf = extractSection(text, "Reverse DCF");
+    if (!dcf) dcf = extractSection(text, "DCF");
+    if (!dcf) dcf = extractSection(text, "Valuation");
+    if (!dcf) {
+      // Fallback: look for "Current metrics" block anywhere after Three Key Questions
+      const afterQuestions = text.split("## Three Key Questions")[1] || "";
+      if (afterQuestions.includes("**Current metrics") || afterQuestions.includes("Implied assumptions") || afterQuestions.includes("Bear / Base / Bull")) {
+        // Everything after the last numbered question
+        const dcfStart = afterQuestions.search(/\n## |\n\*\*Current metrics|\n\*\*Implied/);
+        if (dcfStart >= 0) {
+          dcf = afterQuestions.substring(dcfStart).trim();
+        }
+      }
+    }
     if (dcf) {
       document.getElementById("dcfContent").innerHTML = marked.parse(dcf);
       document.getElementById("dcfSection").style.display = "block";
