@@ -533,17 +533,8 @@ Make 8-15 tool calls before writing the analysis. Be thorough."""
         job["status"] = "Generating non-obvious signals..."
         print(f"[REC-PASS] {ticker}: starting dedicated recommendations pass", flush=True)
 
-        # Strip the existing Recommendations section from the main output
-        if "## Recommendations" in job["text"]:
-            before_rec = job["text"].split("## Recommendations", 1)[0].rstrip()
-            after_rec_section = job["text"].split("## Recommendations", 1)[1]
-            # Find next ## header to know where Recommendations ended
-            next_header = after_rec_section.find("\n## ")
-            if next_header >= 0:
-                after_rec = after_rec_section[next_header:]
-            else:
-                after_rec = ""
-            job["text"] = before_rec + after_rec
+        # SAVE original text in case the dedicated pass fails — we restore from this
+        original_text = job["text"]
 
         rec_initial_message = f"""Generate the SIGNALS TO MONITOR section for {ticker} ({meta.get('name','')}).
 
@@ -634,18 +625,32 @@ Output ONLY the section starting with "## Recommendations" — no other content.
                         rec_text += block.text
                 break
 
-        # Insert the fresh recommendations into job["text"]
-        # Find where Recommendations should go (between Reverse DCF/TOWS and Key Questions, OR at end before Key Questions)
-        if rec_text and "## Recommendations" in rec_text:
-            # Insert before Key Questions if present, else append
-            if "## Key Questions" in job["text"]:
-                parts = job["text"].split("## Key Questions", 1)
+        # Replace the original recommendations with the fresh ones — but ONLY if the new ones are valid
+        if rec_text and "## Recommendations" in rec_text and len(rec_text.strip()) > 200:
+            # Strip the original Recommendations from the saved text
+            if "## Recommendations" in original_text:
+                before_rec = original_text.split("## Recommendations", 1)[0].rstrip()
+                after_rec_section = original_text.split("## Recommendations", 1)[1]
+                next_header = after_rec_section.find("\n## ")
+                if next_header >= 0:
+                    after_rec = after_rec_section[next_header:]
+                else:
+                    after_rec = ""
+                stripped_text = before_rec + after_rec
+            else:
+                stripped_text = original_text
+
+            # Insert fresh recs before Key Questions if present, else append
+            if "## Key Questions" in stripped_text:
+                parts = stripped_text.split("## Key Questions", 1)
                 job["text"] = parts[0].rstrip() + "\n\n" + rec_text.strip() + "\n\n## Key Questions" + parts[1]
             else:
-                job["text"] = job["text"].rstrip() + "\n\n" + rec_text.strip()
+                job["text"] = stripped_text.rstrip() + "\n\n" + rec_text.strip()
             print(f"[REC-PASS] {ticker}: {rec_tool_calls} tool calls, {len(rec_text)} chars added", flush=True)
         else:
-            print(f"[REC-PASS] {ticker}: failed to generate, keeping original recs", flush=True)
+            # Failed — keep the original SWOT with its original Recommendations intact
+            job["text"] = original_text
+            print(f"[REC-PASS] {ticker}: dedicated pass failed (text len={len(rec_text)}), keeping original recs", flush=True)
 
         # Step 2c: Check if Key Questions has at least a couple numbered items — if not, regenerate
         questions_section = ""

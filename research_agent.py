@@ -834,21 +834,40 @@ def run_full_research(ticker: str, status_callback: Callable = None) -> dict:
 
     # Step 1: Yahoo Finance (blocking — we need company name for other queries)
     _status("Fetching financial data...")
+
+    def _fetch_yf_info(t):
+        s = yf.Ticker(t)
+        return s, s.info or {}
+
+    yahoo_rate_limited = False
     try:
         stock = yf.Ticker(ticker)
-        # Retry on rate limit
-        for _attempt in range(3):
-            try:
-                info = stock.info or {}
-                if info.get("longName") or info.get("shortName"):
-                    break
-            except Exception as yf_err:
-                if "rate" in str(yf_err).lower() or "429" in str(yf_err) or "401" in str(yf_err):
-                    time.sleep(3)
+        info = {}
+        # Use a thread future with a hard timeout so we never hang
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            for _attempt in range(2):
+                try:
+                    fut = pool.submit(_fetch_yf_info, ticker)
+                    stock, info = fut.result(timeout=15)
+                    if info.get("longName") or info.get("shortName"):
+                        break
+                except concurrent.futures.TimeoutError:
+                    print(f"[YAHOO] Timeout on attempt {_attempt+1}", flush=True)
+                    info = {}
+                    yahoo_rate_limited = True
                     continue
-                raise
-        else:
-            info = {}
+                except Exception as yf_err:
+                    err_str = str(yf_err).lower()
+                    if "rate" in err_str or "429" in err_str or "401" in err_str or "too many" in err_str:
+                        yahoo_rate_limited = True
+                        time.sleep(2)
+                        continue
+                    raise
+
+        # If Yahoo gave us literally nothing usable, mark as rate-limited
+        if not info.get("longName") and not info.get("shortName"):
+            yahoo_rate_limited = True
+        results["yahoo_rate_limited"] = yahoo_rate_limited
 
         # fast_info for reliable market data
         fi_data = {}
