@@ -112,21 +112,66 @@
     #analyzeBtn:active { background: #cc7a00; }
     #analyzeBtn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    /* ── Status banner ── */
+    /* ── Status banner / terminal log ── */
     #statusBanner {
       display: none;
-      background: #0a0a0a;
-      border: 1px solid #333;
+      background: #050505;
+      border: 1px solid #1a1a1a;
+      border-left: 2px solid #ff9900;
       border-radius: 0;
       padding: 0.6rem 1rem;
       margin-bottom: 1rem;
+      color: #ff9900;
+      font-size: 0.78rem;
+      position: relative;
+    }
+    #statusBanner.hidden { display: none; }
+    #statusBanner.visible { display: block; }
+
+    .status-current {
       display: flex;
       align-items: center;
       gap: 0.75rem;
       color: #ff9900;
-      font-size: 0.8rem;
+      font-weight: 600;
     }
-    #statusBanner.hidden { display: none; }
+    .status-current::before {
+      content: "▸";
+      color: #ff9900;
+      animation: pulse-arrow 1s steps(2) infinite;
+    }
+    @keyframes pulse-arrow { 50% { opacity: 0.3; } }
+
+    .status-log {
+      margin-top: 0.5rem;
+      padding-top: 0.5rem;
+      border-top: 1px solid #1a1a1a;
+      max-height: 100px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column-reverse;
+      gap: 0.15rem;
+      font-size: 0.7rem;
+      color: #555;
+    }
+    .status-log-entry {
+      display: flex;
+      gap: 0.5rem;
+      animation: log-fade-in 0.3s ease-out;
+    }
+    @keyframes log-fade-in {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .status-log-entry .ts { color: #444; min-width: 50px; }
+    .status-log-entry .msg { color: #888; }
+    .status-log-entry .tool-tag { color: #00ddff; font-weight: 600; }
+    .status-log-entry .tool-finance { color: #00cc00; }
+    .status-log-entry .tool-filing { color: #ff9900; }
+    .status-log-entry .tool-trial { color: #ff66ff; }
+    .status-log-entry .tool-web { color: #00ddff; }
+    .status-log-entry .tool-comp { color: #ffcc00; }
+
     .spinner {
       width: 14px; height: 14px;
       border: 2px solid #333;
@@ -603,8 +648,11 @@
 
   <!-- Status -->
   <div id="statusBanner" class="hidden">
-    <div class="spinner"></div>
-    <span id="statusText">Loading...</span>
+    <div class="status-current">
+      <div class="spinner"></div>
+      <span id="statusText">Loading...</span>
+    </div>
+    <div class="status-log" id="statusLog"></div>
   </div>
 
   <!-- Error -->
@@ -806,13 +854,56 @@
     return `$${v.toLocaleString()}`;
   }
 
+  let _lastStatus = "";
+  let _statusLogEntries = [];
+
+  function _formatTimestamp() {
+    const d = new Date();
+    return d.toTimeString().slice(0, 8);
+  }
+
+  function _classifyTool(msg) {
+    // Classify the tool type for color coding
+    if (!msg) return '';
+    const lower = msg.toLowerCase();
+    if (lower.includes('financial_metric') || lower.includes('xbrl') || lower.includes('yahoo')) return 'tool-finance';
+    if (lower.includes('10k') || lower.includes('filing') || lower.includes('sec')) return 'tool-filing';
+    if (lower.includes('clinical') || lower.includes('trial')) return 'tool-trial';
+    if (lower.includes('web') || lower.includes('intelligence')) return 'tool-web';
+    if (lower.includes('comp') || lower.includes('competitor')) return 'tool-comp';
+    return '';
+  }
+
+  function _addLogEntry(msg) {
+    if (!msg || msg === _lastStatus) return;
+    if (_lastStatus) {
+      // Push the PREVIOUS status into the log (it just completed)
+      const cls = _classifyTool(_lastStatus);
+      _statusLogEntries.unshift({ ts: _formatTimestamp(), msg: _lastStatus, cls });
+      if (_statusLogEntries.length > 8) _statusLogEntries.pop();
+
+      const logEl = document.getElementById("statusLog");
+      if (logEl) {
+        logEl.innerHTML = _statusLogEntries.map(e =>
+          `<div class="status-log-entry"><span class="ts">${e.ts}</span><span class="msg ${e.cls}">✓ ${e.msg}</span></div>`
+        ).join("");
+      }
+    }
+    _lastStatus = msg;
+  }
+
   function setStatus(msg) {
     const b = document.getElementById("statusBanner");
     if (msg) {
       b.classList.remove("hidden");
+      _addLogEntry(msg);
       document.getElementById("statusText").textContent = msg;
     } else {
       b.classList.add("hidden");
+      _lastStatus = "";
+      _statusLogEntries = [];
+      const logEl = document.getElementById("statusLog");
+      if (logEl) logEl.innerHTML = "";
     }
   }
 
@@ -1166,8 +1257,12 @@
         // Append new text
         if (data.text) {
           accumulatedText += data.text;
-          setStatus(null); // clear any retry messages once content flows
           renderSections(accumulatedText);
+        }
+
+        // Always show the status from the server (keeps loading bar visible through all phases)
+        if (data.status) {
+          setStatus(data.status);
         }
 
         // Check if done
@@ -1179,8 +1274,9 @@
           const questionsContent = hasQuestions ? (accumulatedText.split("## Key Questions")[1] || accumulatedText.split("## Three Key Questions")[1] || "").trim() : "";
           const isComplete = hasAllFour && hasQuestions && questionsContent.length > 100;
 
-          // Auto-retry if partial (has some SWOT but incomplete)
-          if (hasAllFour && !isComplete && retryCount < MAX_RETRIES) {
+          // Auto-retry DISABLED — caused visible restarts. Backend has its own question/DCF fallback
+          // that fills gaps. Just accept what we have.
+          if (false && hasAllFour && !isComplete && retryCount < MAX_RETRIES) {
             retryCount++;
             accumulatedText = "";
             // Hide partial results during retry
