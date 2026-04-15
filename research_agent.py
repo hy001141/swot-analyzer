@@ -555,17 +555,59 @@ Return ONLY a JSON array of 4-5 ticker strings. No explanation. Example: ["META"
 
 
 def fetch_competitor_data(comp_ticker: str) -> dict:
-    """Fetch financial data + abbreviated 10-K for one competitor."""
+    """Fetch financial data + abbreviated 10-K for one competitor.
+    Falls back to Finnhub if Yahoo is rate-limited."""
     result = {
         "ticker": comp_ticker,
         "financials": {},
         "filing_excerpt": "",
     }
 
+    info = {}
     try:
-        stock = yf.Ticker(comp_ticker)
-        info = stock.info or {}
+        # Yahoo with timeout
+        def _fetch_comp_yf(t):
+            return yf.Ticker(t).info or {}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            try:
+                fut = pool.submit(_fetch_comp_yf, comp_ticker)
+                info = fut.result(timeout=10)
+            except concurrent.futures.TimeoutError:
+                print(f"[COMP] {comp_ticker}: Yahoo timeout", flush=True)
+                info = {}
+    except Exception as e:
+        print(f"[COMP] {comp_ticker} Yahoo error: {e}")
 
+    # If Yahoo failed/empty, try Finnhub
+    if not info.get("longName") and not info.get("shortName") and FINNHUB_API_KEY:
+        try:
+            from finnhub_source import fetch_finnhub_profile, fetch_finnhub_quote, fetch_finnhub_metrics
+            f_profile = fetch_finnhub_profile(comp_ticker)
+            f_quote = fetch_finnhub_quote(comp_ticker)
+            f_metrics = fetch_finnhub_metrics(comp_ticker)
+            if f_profile.get("name"):
+                # Patch info dict with Finnhub data
+                info["longName"] = f_profile.get("name")
+                info["industry"] = f_profile.get("industry", "")
+                info["marketCap"] = f_profile.get("marketCap")
+                info["currentPrice"] = f_quote.get("current")
+                # Map Finnhub metrics to yfinance keys
+                info["trailingPE"] = f_metrics.get("peTTM")
+                info["forwardPE"] = f_metrics.get("peExclExtraTTM")
+                info["enterpriseToEbitda"] = f_metrics.get("evToEbitdaTTM")
+                info["revenueGrowth"] = f_metrics.get("revenueGrowthTTMYoy")
+                info["grossMargins"] = f_metrics.get("grossMarginTTM")
+                info["operatingMargins"] = f_metrics.get("operatingMarginTTM")
+                info["profitMargins"] = f_metrics.get("netProfitMarginTTM")
+                info["returnOnEquity"] = f_metrics.get("roeTTM")
+                info["debtToEquity"] = f_metrics.get("totalDebtToEquityAnnual")
+                info["beta"] = f_metrics.get("beta")
+                info["dividendYield"] = f_metrics.get("dividendYieldIndicatedAnnual")
+                print(f"[COMP] {comp_ticker}: Finnhub fallback succeeded", flush=True)
+        except Exception as fe:
+            print(f"[COMP] {comp_ticker} Finnhub error: {fe}")
+
+    if info.get("longName") or info.get("shortName"):
         result["financials"] = {
             "name": info.get("longName") or info.get("shortName") or comp_ticker,
             "marketCap": info.get("marketCap"),
@@ -585,8 +627,6 @@ def fetch_competitor_data(comp_ticker: str) -> dict:
             "sector": info.get("sector", ""),
             "industry": info.get("industry", ""),
         }
-    except Exception as e:
-        print(f"[COMP] Error fetching {comp_ticker} financials: {e}")
 
     # Abbreviated 10-K (15K chars — business overview + risk factors)
     try:
