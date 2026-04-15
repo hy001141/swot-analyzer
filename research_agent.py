@@ -23,6 +23,7 @@ import anthropic
 
 from sec_fetcher import fetch_sec_data, build_sec_summary, get_cik
 from deep_sources import fetch_clinical_trials, fetch_sec_xbrl_facts
+from finnhub_source import build_finnhub_summary, format_finnhub_for_llm, FINNHUB_API_KEY
 
 # ── Configuration ────────────────────────────────────────────────────────
 
@@ -882,11 +883,36 @@ def run_full_research(ticker: str, status_callback: Callable = None) -> dict:
         except:
             pass
 
+        # ── Finnhub fallback when Yahoo is rate-limited ──
+        finnhub_data = {}
+        if yahoo_rate_limited and FINNHUB_API_KEY:
+            _status("Yahoo rate-limited, falling back to Finnhub...")
+            try:
+                finnhub_data = build_finnhub_summary(ticker)
+                if finnhub_data.get("available"):
+                    print(f"[FINNHUB] {ticker}: fallback succeeded", flush=True)
+                    results["sources_succeeded"].append("Finnhub (Yahoo fallback)")
+                    # Patch info dict with Finnhub data so downstream logic still works
+                    profile = finnhub_data.get("profile", {})
+                    quote = finnhub_data.get("quote", {})
+                    if profile.get("name"):
+                        info["longName"] = profile["name"]
+                    if profile.get("industry"):
+                        info["industry"] = profile["industry"]
+                    if profile.get("marketCap"):
+                        info["marketCap"] = profile["marketCap"]
+                        fi_data["marketCap"] = profile["marketCap"]
+                    if quote.get("current"):
+                        info["currentPrice"] = quote["current"]
+                        fi_data["lastPrice"] = quote["current"]
+            except Exception as fe:
+                print(f"[FINNHUB] Error: {fe}", flush=True)
+
         company_name = info.get("longName") or info.get("shortName") or ""
         sector = info.get("sector", "")
         industry = info.get("industry", "")
 
-        # If yfinance didn't give us a name (rate limit), fall back to SEC EDGAR
+        # If still no name, fall back to SEC EDGAR
         if not company_name or company_name == ticker:
             try:
                 from sec_fetcher import get_company_info_from_sec
@@ -910,6 +936,15 @@ def run_full_research(ticker: str, status_callback: Callable = None) -> dict:
 
         # Build financial summary using yfinance data we already have
         results["yahoo_finance"] = _build_yahoo_summary(stock, info)
+
+        # If Yahoo was rate-limited and Finnhub gave us data, append it as supplementary financial source
+        if finnhub_data.get("available"):
+            finnhub_text = format_finnhub_for_llm(finnhub_data)
+            if finnhub_text:
+                if results["yahoo_finance"]:
+                    results["yahoo_finance"] += "\n\n" + finnhub_text
+                else:
+                    results["yahoo_finance"] = finnhub_text
 
         # Get price history for meta
         try:
