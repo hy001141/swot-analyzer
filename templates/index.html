@@ -897,26 +897,26 @@
       document.getElementById("recoSection").style.display = "block";
     }
 
-    // Key Questions — render as clickable pills
+    // Key Questions — parse numbered questions using matchAll
     const questions = extractSection(text, "Three Key Questions");
     if (questions) {
-      // Match "1. ...", "2. ..." handling multi-line questions and bold markers
-      // Split by numbered markers at start of line
-      const parts = questions.split(/(?:^|\n)\s*(\d+)\.\s+/).filter(s => s && s.trim());
-      // After split, we get [num, content, num, content, ...] — pair them
-      const pairs = [];
-      for (let i = 0; i < parts.length - 1; i += 2) {
-        if (/^\d+$/.test(parts[i])) {
-          pairs.push(parts[i + 1]);
-        }
+      // Match each numbered question: capture from "N." to the next "N." or end
+      // Use matchAll with a pattern that captures the content of each numbered item
+      const matches = [...questions.matchAll(/(?:^|\n)\s*(\d+)\.\s+([\s\S]+?)(?=\n\s*\d+\.\s+|$)/g)];
+
+      let extractedQuestions = matches.map(m => m[2].trim()).filter(q => q.length > 0);
+
+      // Fallback: if matchAll didn't work, try line-by-line
+      if (extractedQuestions.length === 0) {
+        extractedQuestions = questions.split('\n')
+          .filter(l => l.trim().match(/^\d+\./))
+          .map(l => l.replace(/^\s*\d+\.\s*/, '').trim())
+          .filter(q => q.length > 0);
       }
-      // Fallback if split didn't work: try a simpler approach
-      const lines = pairs.length > 0 ? pairs : questions.split('\n').filter(l => l.trim().match(/^\d+\./)).map(l => l.replace(/^\d+\.\s*/, ''));
 
       const container = document.getElementById("questionsContent");
       container.innerHTML = "";
-      lines.forEach((rawQ, i) => {
-        // Clean up: remove bold markers and trailing whitespace, collapse multi-line
+      extractedQuestions.forEach((rawQ, i) => {
         const q = rawQ.replace(/\*\*/g, '').replace(/\s+/g, ' ').trim();
         if (!q) return;
         const el = document.createElement("div");
@@ -925,7 +925,7 @@
         el.onclick = () => { document.getElementById("chatInput").value = q; document.getElementById("chatInput").focus(); };
         container.appendChild(el);
       });
-      if (lines.length > 0) {
+      if (extractedQuestions.length > 0) {
         document.getElementById("questionsSection").style.display = "block";
       }
     }
