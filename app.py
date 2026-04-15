@@ -20,6 +20,7 @@ import yfinance as yf
 import anthropic
 from sec_fetcher import fetch_sec_data, build_sec_summary
 from research_agent import run_full_research, build_full_context
+from lookup_tool import LookupTool, TOOL_DEFINITIONS, execute_tool
 
 app = Flask(__name__)
 
@@ -161,7 +162,26 @@ def build_data_summary(data: dict) -> str:
     return "\n".join(lines)
 
 
-SWOT_SYSTEM_PROMPT = """You are a senior long/short equity analyst at a top-tier fundamental hedge fund. You have been given a comprehensive research package with raw data from ~16 independent sources (numbered [1] through [12]+). Your output will be evaluated against what a Goldman Sachs or Morgan Stanley equity research analyst would produce.
+SWOT_SYSTEM_PROMPT = """You are a senior long/short equity analyst at a top-tier fundamental hedge fund. You have access to lookup tools that return REAL data from SEC XBRL filings, ClinicalTrials.gov, 10-K text, competitor filings, and web research. Your output will be evaluated against what a Goldman Sachs or Morgan Stanley equity research analyst would produce.
+
+═══════════════════════════════════════════════════════════════
+GROUNDED GENERATION — YOU MUST USE THE TOOLS
+═══════════════════════════════════════════════════════════════
+
+You have lookup tools available. You CANNOT make any specific factual claim (number, percentage, date, NCT ID, executive name, dollar amount) without first calling a lookup tool to retrieve that information.
+
+Workflow:
+1. CALL TOOLS FIRST to gather the specific facts you need
+2. Use the tool results as the EXCLUSIVE source of any specific data in your analysis
+3. After 10-20 tool calls, write the final SWOT using only what the tools returned
+
+If a tool returns "found: false" for something you wanted to claim, DROP THE CLAIM. Use a qualitative statement instead. Do not invent the data.
+
+When you cite a fact, include the source tag from the tool result (e.g., the tool returns "source: [13] SEC XBRL structured facts" — your citation is [13]).
+
+DO NOT write the SWOT until you've made enough tool calls to support every claim. A first pass with no tool calls is FORBIDDEN.
+
+═══════════════════════════════════════════════════════════════
 
 ═══════════════════════════════════════════════════════════════
 ABSOLUTE RULE — ZERO TOLERANCE FOR FABRICATION
@@ -330,36 +350,99 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
         failed = research.get("sources_failed", [])
         print(f"[RESEARCH] {ticker}: {len(sources)} sources OK ({', '.join(sources)}), {len(failed)} failed ({', '.join(failed)}), context={len(full_context)} chars", flush=True)
 
-        # Step 2: Generate SWOT with Claude (retry on overload)
-        job["status"] = f"Analyzing with QuantumIQ AI ({len(sources)} sources)..."
-        client = anthropic.Anthropic(api_key=api_key)
-        max_api_retries = 3
+        # Step 2: Grounded SWOT generation via tool_use loop
+        # Opus calls lookup tools to retrieve REAL data — cannot fabricate.
+        job["status"] = f"Analyzing with QuantumIQ AI ({len(sources)} sources via grounded lookup)..."
+        client = anthropic.Anthropic(api_key=api_key, timeout=600.0)
 
-        for attempt in range(max_api_retries):
+        # Build the lookup tool with the research data
+        lookup = LookupTool(research)
+
+        # Initial user message — concise, since Opus will fetch what it needs via tools
+        initial_message = f"""Produce a comprehensive SWOT analysis for {ticker} ({meta.get('name', '')}).
+
+You have {len(sources)} data sources available via lookup tools. CALL THE TOOLS to retrieve specific data — every claim in your analysis MUST come from a tool call result. Do not write any specific number, percentage, date, or trial ID that you have not retrieved via a tool.
+
+Recommended workflow:
+1. Start by calling lookup_yahoo_finance() and lookup_financial_metric() for key metrics (Revenue, Operating Income, R&D Expense, Net Income) to ground yourself
+2. Call lookup_10k_passage() with specific topics relevant to this company's business (segments, competitive moats, risk factors)
+3. Call lookup_competitor_10k() for at least 2 named competitors to cross-reference positioning
+4. Call lookup_clinical_trials() if this is a pharma/biotech company
+5. Call lookup_insider_transactions(), lookup_short_interest(), lookup_analyst_estimates() for positioning data
+6. Call lookup_web_intelligence() with specific queries (patents, hiring, congressional, earnings calls)
+7. Call lookup_comp_table() to get peer valuation context
+8. THEN write the SWOT, citing every claim with the source tag returned by the tool (e.g. [13] for XBRL, [14] for trials, [12.X] for web sources)
+
+ABSOLUTE RULE: If you cannot point to a specific tool call result for a claim, do not make the claim. Use qualitative framing instead.
+
+Make 8-15 tool calls before writing the analysis. Be thorough."""
+
+        messages = [{"role": "user", "content": initial_message}]
+        max_tool_iterations = 25
+        tool_call_count = 0
+        final_text = ""
+
+        for iteration in range(max_tool_iterations):
             try:
-                job["text"] = ""  # reset on retry
-                with client.messages.stream(
+                response = client.messages.create(
                     model="claude-opus-4-20250514",
-                    max_tokens=32000,
+                    max_tokens=16000,
                     system=SWOT_SYSTEM_PROMPT,
-                    messages=[{
-                        "role": "user",
-                        "content": f"Produce a comprehensive SWOT analysis for {ticker} ({meta.get('name', '')}).\n\nThe following research has been gathered from {len(sources)} sources: {', '.join(sources)}.\n\n{full_context}"
-                }]
-                ) as stream:
-                    for text_chunk in stream.text_stream:
-                        job["text"] += text_chunk
-                break  # success, exit retry loop
-
+                    tools=TOOL_DEFINITIONS,
+                    messages=messages,
+                )
             except Exception as api_err:
                 is_overloaded = "overloaded" in str(api_err).lower() or "529" in str(api_err)
-                if is_overloaded and attempt < max_api_retries - 1:
+                if is_overloaded:
                     import time
-                    job["status"] = f"Server busy, retrying ({attempt + 2}/{max_api_retries})..."
+                    job["status"] = f"Server busy, retrying..."
                     time.sleep(3)
                     continue
-                else:
-                    raise api_err
+                raise api_err
+
+            # Check stop reason
+            stop_reason = response.stop_reason
+
+            # Append the assistant's response to messages
+            assistant_blocks = []
+            for block in response.content:
+                assistant_blocks.append(block.model_dump() if hasattr(block, 'model_dump') else block.__dict__)
+
+            messages.append({"role": "assistant", "content": [
+                {k: v for k, v in b.items() if k in ("type", "text", "id", "name", "input")}
+                for b in assistant_blocks
+            ]})
+
+            # If Opus is calling tools, execute them and continue
+            if stop_reason == "tool_use":
+                tool_results = []
+                for block in response.content:
+                    if hasattr(block, 'type') and block.type == "tool_use":
+                        tool_call_count += 1
+                        tool_name = block.name
+                        tool_input = block.input or {}
+                        job["status"] = f"Verifying data ({tool_call_count}/15)... {tool_name}"
+                        print(f"[TOOL] {ticker}: {tool_name}({tool_input})", flush=True)
+
+                        result = execute_tool(tool_name, tool_input, lookup)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": result,
+                        })
+
+                messages.append({"role": "user", "content": tool_results})
+                continue
+
+            # If Opus stopped (end_turn), extract the final text
+            if stop_reason in ("end_turn", "stop_sequence", "max_tokens"):
+                for block in response.content:
+                    if hasattr(block, 'type') and block.type == "text":
+                        final_text += block.text
+                break
+
+        job["text"] = final_text
+        print(f"[GROUNDED] {ticker}: {tool_call_count} tool calls, {len(final_text)} chars output", flush=True)
 
         # NOTE: Self-critique pass removed. It caused visual flickering (replacing job.text mid-stream)
         # and removed comp table / downstream sections. The main SWOT prompt's anti-fabrication
