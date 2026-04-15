@@ -720,12 +720,6 @@
     <div class="section-content" id="recoContent"></div>
   </div>
 
-  <!-- Key Questions -->
-  <div id="questionsSection" class="analysis-section" style="display:none;">
-    <div class="section-title">Three Key Questions</div>
-    <div id="questionsContent"></div>
-  </div>
-
   <!-- Comp Table -->
   <div id="compSection" class="analysis-section">
     <div class="section-title">Comparable Company Analysis</div>
@@ -744,6 +738,12 @@
   <div id="sourcesSection" class="analysis-section" style="display:none;">
     <div class="section-title">Research Sources</div>
     <div class="section-content" id="sourcesContent"></div>
+  </div>
+
+  <!-- Key Questions — placed right above the chat so users can click a question to ask it -->
+  <div id="questionsSection" class="analysis-section" style="display:none;">
+    <div class="section-title">Three Key Questions</div>
+    <div id="questionsContent"></div>
   </div>
 
   <!-- Chat -->
@@ -968,7 +968,7 @@
 
     // Web citations (clickable links)
     if (webCitations.length) {
-      html += "<p style='margin-bottom:0.5rem;font-size:0.75rem;color:#ff9900;font-weight:700;'>WEB RESEARCH [12]:</p>";
+      html += `<p style='margin-bottom:0.5rem;font-size:0.75rem;color:#ff9900;font-weight:700;'>WEB RESEARCH SOURCES (${webCitations.length}):</p>`;
       html += "<ol style='padding-left:1.5rem;font-size:0.75rem;'>";
       webCitations.forEach(c => {
         const safeTitle = (c.title || c.url).replace(/</g, "&lt;").replace(/>/g, "&gt;");
