@@ -161,7 +161,32 @@ def build_data_summary(data: dict) -> str:
     return "\n".join(lines)
 
 
-SWOT_SYSTEM_PROMPT = """You are a senior long/short equity analyst at a top-tier fundamental hedge fund. You have been given a comprehensive research package with raw data from ~16 independent sources (numbered [1] through [12]+). Your output will be evaluated against what a Goldman Sachs or Morgan Stanley equity research analyst would produce — if it sounds generic, you've failed.
+SWOT_SYSTEM_PROMPT = """You are a senior long/short equity analyst at a top-tier fundamental hedge fund. You have been given a comprehensive research package with raw data from ~16 independent sources (numbered [1] through [12]+). Your output will be evaluated against what a Goldman Sachs or Morgan Stanley equity research analyst would produce.
+
+═══════════════════════════════════════════════════════════════
+ABSOLUTE RULE — ZERO TOLERANCE FOR FABRICATION
+═══════════════════════════════════════════════════════════════
+
+You are FORBIDDEN from inventing specific numbers, metrics, dates, trigger thresholds, or data points that are not explicitly present in the research package below. This includes:
+
+- DO NOT invent specific statistics like "3 ATC activations per month" if that number is not in the research
+- DO NOT invent specific dates like "expiring March 2026" if not in the research
+- DO NOT invent specific thresholds like ">$1B run-rate" if not grounded in actual disclosed data
+- DO NOT invent specific percentages like "82.1% SWE-bench" if not in the research
+- DO NOT invent "ClinicalTrials.gov shows..." or "Per the LinkedIn postings..." unless you actually see that content in the sources provided
+- DO NOT cite a source [N] for a claim that didn't come from that source
+
+WHAT YOU CAN DO:
+- Cite actual numbers from the research package (reported revenue, margins, prices, analyst estimates that are ACTUALLY in the data)
+- Use general industry knowledge clearly marked as such ("industry typically sees 60-70% gross margins for SaaS")
+- Present frameworks and mental models without fake precision ("watch for margin compression" rather than "watch for >3% margin compression")
+- Write in conditional language when data is missing ("if the company discloses X in the next 10-Q, that would indicate Y")
+
+IF THE DATA ISN'T IN THE RESEARCH PACKAGE, YOU DO NOT HAVE IT. Say so, or use a general framework instead. Better to say "monitor segment margin trajectory" than to invent "watch for >180bps compression in Q3."
+
+Hallucinated data points with fake citations will cause a PM to lose money and lose their job. This is a firing offense. If you are unsure whether a specific number exists in the research, DO NOT use it — use a qualitative description instead.
+
+═══════════════════════════════════════════════════════════════
 
 THE DATA SOURCES (numbered for inline citation):
 [1] Yahoo Finance — financials, valuation, margins, growth, holders
@@ -229,7 +254,7 @@ Use EXACTLY these markdown headers, in this exact order:
 ## Strategic Fit Assessment
 ## TOWS Matrix
 ## Recommendations
-## Three Key Questions
+## Key Questions
 
 FORMATTING RULES:
 - Strengths/Weaknesses/Opportunities/Threats: 4-6 bullet points each. Each bullet starts with "- **Mechanical insight title:** Specific reasoning chain with numbers and inline citations [X]."
@@ -239,11 +264,11 @@ FORMATTING RULES:
 - Strategic Fit Assessment: 2-3 concise paragraphs connecting internal mechanics to external conditions
 - TOWS Matrix: 4 bullets, one per strategy. Format: "- **SO Strategy:** [specific mechanical action citing sources]"
 - Recommendations: 3-5 bullets. Each must include: (a) specific leading indicator to monitor, (b) source to watch for confirmation/disconfirmation, (c) specific price/metric trigger, (d) source citations.
-- Three Key Questions: exactly 3 numbered items. Each question must be non-obvious, cite specific data, and be answerable through channel checks/expert calls/data analysis — NOT from reading the 10-K.
+- Key Questions: 3-5 numbered items. Each question must be non-obvious, cite specific data, and be answerable through channel checks/expert calls/data analysis — NOT from reading the 10-K. Only write as many as you actually have meaningful questions for — don't pad.
 
 BULLET POINTS ONLY. NO PROSE PARAGRAPHS IN SWOT SECTIONS. Each bullet starts with "-" and a **bolded** lead-in.
 
-YOU MUST COMPLETE ALL 8 SECTIONS. Pace your output — if you're writing too much in Strengths, tighten up so Three Key Questions gets its full depth. Three Key Questions is NOT optional."""
+YOU MUST COMPLETE ALL 8 SECTIONS. Pace your output — if you're writing too much in Strengths, tighten up so Key Questions gets its full depth. Key Questions is NOT optional."""
 
 
 # ── Background worker ────────────────────────────────────────────────────
@@ -354,6 +379,21 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
                     "role": "user",
                     "content": f"""You are the senior PM reviewing a junior analyst's SWOT on {ticker} ({meta.get('name','')}).
 
+═══════════════════════════════════════════════════════════════
+CRITICAL — ZERO TOLERANCE FOR FABRICATION
+═══════════════════════════════════════════════════════════════
+
+You are FORBIDDEN from inventing specific numbers, metrics, dates, trigger thresholds, or data points not explicitly present in the research package. This is a firing offense.
+
+- DO NOT invent statistics, thresholds, or percentages
+- DO NOT cite a source [N] for a claim that didn't come from that source
+- DO NOT invent specific dates, launch timelines, or disclosed figures
+- If a claim in the junior analyst's draft appears fabricated (made-up numbers, invented benchmarks, fake specificity), REMOVE IT and replace with a qualitative statement grounded in actual data
+
+If the data isn't in the research package, you don't have it. Use qualitative frameworks, general industry knowledge clearly marked as such, or conditional language ("if the company discloses X..."). Never invent precision.
+
+═══════════════════════════════════════════════════════════════
+
 RESEARCH PACKAGE (the analyst had access to this):
 {full_context[:80000]}
 
@@ -389,7 +429,7 @@ OUTPUT FORMAT: Return the COMPLETE rewritten SWOT with all 8 sections using thes
 ## Strategic Fit Assessment
 ## TOWS Matrix
 ## Recommendations
-## Three Key Questions
+## Key Questions
 
 Keep strong points from the draft. Rewrite weak/generic points. Every bullet must start with "- **bolded insight:**" and cite sources [1]-[12]. Every SWOT point must cross-reference at least 2 different sources.
 
@@ -400,7 +440,7 @@ Do NOT include any commentary about what you changed. Just output the rewritten 
             # Only replace if the critique actually produced a valid SWOT (has all 4 sections)
             if (critique_text.count("## ") >= 6 and
                 "## Strengths" in critique_text and
-                "## Three Key Questions" in critique_text):
+                "## Key Questions" in critique_text):
                 job["text"] = critique_text
                 print(f"[CRITIQUE] {ticker}: successfully rewrote SWOT ({len(critique_text)} chars)", flush=True)
             else:
@@ -409,47 +449,53 @@ Do NOT include any commentary about what you changed. Just output the rewritten 
             import traceback
             print(f"[CRITIQUE] Error: {crit_err}\n{traceback.format_exc()}", flush=True)
 
-        # Step 2c: Check if Three Key Questions has all 3 numbered questions — if not, regenerate
+        # Step 2c: Check if Key Questions has at least a couple numbered items — if not, regenerate
         questions_section = ""
-        if "## Three Key Questions" in job["text"]:
-            after = job["text"].split("## Three Key Questions", 1)[1]
+        if "## Key Questions" in job["text"]:
+            after = job["text"].split("## Key Questions", 1)[1]
             # Cut at next ## header (e.g. Reverse DCF appended later)
             next_header_idx = after.find("\n## ")
             questions_section = after[:next_header_idx].strip() if next_header_idx >= 0 else after.strip()
 
-        # Count numbered questions (1. 2. 3.)
+        # Count numbered questions
         import re as _re
         numbered_count = len(_re.findall(r'(?:^|\n)\s*\d+\.\s+', questions_section))
 
-        if numbered_count < 3 or len(questions_section) < 200:
+        # Regenerate if fewer than 2 questions or too short overall
+        if numbered_count < 2 or len(questions_section) < 150:
             job["status"] = "Generating key questions..."
-            print(f"[QUESTIONS] {ticker}: generating questions separately ({len(questions_section)} chars)", flush=True)
+            print(f"[QUESTIONS] {ticker}: generating questions separately ({len(questions_section)} chars, {numbered_count} numbered)", flush=True)
 
-            if "## Three Key Questions" in job["text"]:
-                job["text"] = job["text"].rsplit("## Three Key Questions", 1)[0].rstrip()
+            if "## Key Questions" in job["text"]:
+                job["text"] = job["text"].rsplit("## Key Questions", 1)[0].rstrip()
 
             try:
                 q_response = client.messages.create(
                     model="claude-opus-4-20250514",
-                    max_tokens=2000,
+                    max_tokens=2500,
                     messages=[{
                         "role": "user",
                         "content": f"""Here is a SWOT analysis for {ticker} ({meta.get('name','')}):
 
 {job['text']}
 
-Based on this analysis, produce exactly 3 non-obvious, highly specific questions a hedge fund PM should investigate before sizing this position. Each question must:
-- Reference specific numbers, metrics, or disclosures from the analysis above
+CRITICAL: Do NOT fabricate numbers, dates, thresholds, or specific data points. Only reference figures that actually appear in the analysis above. If you don't have specific data, use qualitative framing instead. Inventing fake precision is a firing offense.
+
+Produce 3-5 non-obvious questions a hedge fund PM should investigate. Each question must:
+- Only reference numbers/metrics that actually appear in the analysis above
 - Be answerable through channel checks, expert calls, or further data analysis
-- NOT be generic (no "is management capable?")
+- NOT be generic ("is management capable?") but also NOT pretend to know data you don't have
 - Be 2-3 sentences long with specific context
+- If you want precision, use conditional language: "if the next 10-Q discloses..." instead of fake numbers
+
+Write as many questions as you have genuinely meaningful ones — aim for 3-5, don't pad.
 
 Respond with ONLY this format, nothing else:
 
-## Three Key Questions
-1. [First question with specific details and numbers from the analysis]
-2. [Second question with specific details and numbers]
-3. [Third question with specific details and numbers]"""
+## Key Questions
+1. [Question grounded in actual data or qualitative framing]
+2. ...
+3. ..."""
                     }]
                 )
                 q_text = q_response.content[0].text.strip()
@@ -470,6 +516,8 @@ Respond with ONLY this format, nothing else:
                 messages=[{
                     "role": "user",
                     "content": f"""You are a hedge fund valuation analyst. Run a REVERSE DCF for {ticker} ({meta.get('name','')}) using the financial data below.
+
+CRITICAL — ZERO FABRICATION: Use ONLY numbers that actually appear in the research data below. Current price, market cap, revenue, margins, net debt — these must come from the actual data. If a specific figure isn't present, say "N/A" or use the closest disclosed metric. Do NOT invent precision. Your scenario assumptions (rev CAGR, terminal margin) should be reasonable given actual historical data. Show your work: if you assume 12% rev CAGR, base it on actual 3-year trailing growth from the data.
 
 A reverse DCF answers: "What growth rate and margin assumptions does the CURRENT stock price imply?" This reveals what consensus is baking in.
 
@@ -563,9 +611,17 @@ def run_chat_worker(job_id: str, session_id: str, question: str):
         client = anthropic.Anthropic(api_key=api_key)
 
         CHAT_PROMPT = """You are a sharp, direct equity research analyst answering follow-up questions about the company you just analyzed.
+
+CRITICAL — NEVER FABRICATE DATA:
+- If you do not have specific data (a number, date, metric, disclosure) in the research package, SAY SO. Do NOT invent fake precision.
+- Do NOT cite sources [N] for claims not actually in the research.
+- If asked "where did you get this", be honest: distinguish between (a) numbers from the research package, (b) general industry knowledge, (c) analytical frameworks, and (d) things you don't actually know.
+- It is ALWAYS better to say "I don't have that specific data" than to invent numbers.
+- Hallucinated financial data is a firing offense in research.
+
 Rules:
 - Answer ANY question about the company: leadership, CEO, management, products, history, competitors, financials, strategy, news, culture, anything.
-- Use your general knowledge about the company freely — you're not limited to just the data provided.
+- Use general knowledge about the company, but clearly distinguish general knowledge from specific data in the research.
 - Only refuse if the question is completely unrelated to business/finance (e.g. "write me a poem", "what's 2+2").
 - Be direct and concise. No fluff, no filler.
 - Write like a human analyst in a quick Slack message, not a research report.
