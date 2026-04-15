@@ -461,25 +461,16 @@ ABSOLUTE RULE: If you cannot point to a specific tool call result for a claim, d
 Make 8-15 tool calls before writing the analysis. Be thorough."""
 
         messages = [{"role": "user", "content": initial_message}]
-        max_tool_iterations = 15  # reduced from 25 — saves time and cost
+        max_tool_iterations = 25
         tool_call_count = 0
         final_text = ""
-
-        # Cache the system prompt + tools across all iterations (saves ~85% on input tokens)
-        cached_system = [
-            {
-                "type": "text",
-                "text": SWOT_SYSTEM_PROMPT,
-                "cache_control": {"type": "ephemeral"},
-            }
-        ]
 
         for iteration in range(max_tool_iterations):
             try:
                 response = client.messages.create(
                     model="claude-opus-4-20250514",
                     max_tokens=16000,
-                    system=cached_system,
+                    system=SWOT_SYSTEM_PROMPT,
                     tools=TOOL_DEFINITIONS,
                     messages=messages,
                 )
@@ -586,17 +577,14 @@ WORKFLOW:
 
 Make at least 4 tool calls before writing. Output ONLY the new "## Recommendations" section — nothing else, no intro, no other sections."""
 
-        # Cache the original SWOT context — it gets re-sent every tool iteration in this pass too
-        rec_messages = [{"role": "user", "content": [
-            {"type": "text", "text": rec_initial_message, "cache_control": {"type": "ephemeral"}}
-        ]}]
+        rec_messages = [{"role": "user", "content": rec_initial_message}]
 
-        for rec_iteration in range(12):  # reduced from 20 to 12 to save cost
+        for rec_iteration in range(20):
             try:
                 rec_response = client.messages.create(
                     model="claude-opus-4-20250514",
-                    max_tokens=6000,  # reduced from 8000
-                    system=cached_system,
+                    max_tokens=8000,
+                    system=SWOT_SYSTEM_PROMPT,
                     tools=TOOL_DEFINITIONS,
                     messages=rec_messages,
                 )
