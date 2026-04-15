@@ -321,7 +321,35 @@ FORMATTING RULES:
 - Threats MUST include one labeled "THESIS KILLER:" — the single disconfirming event that closes the position
 - Strategic Fit Assessment: 2-3 concise paragraphs connecting internal mechanics to external conditions
 - TOWS Matrix: 4 bullets, one per strategy. Format: "- **SO Strategy:** [specific mechanical action citing sources]"
-- Recommendations: 3-5 bullets. These are NON-OBVIOUS SIGNALS TO MONITOR, not portfolio construction advice. Do NOT write "build long position", "pair-trade", "sell puts", or any specific position-sizing — that's the PM's job. Your job is to surface the EARLY WARNING SIGNS or HIDDEN CONNECTIONS that would change someone's view of the company before it becomes consensus. Format each bullet as "**[Signal title]:** [what specifically to watch for, where to find it, and what it would mean if you saw it]". Examples of what TO write: "**Watch for Apple TAC disclosure timing in Q1 calls:** Any change in language around the maintenance of current ~36% rev share would signal renegotiation; a 90-day delay in commentary historically precedes deals." or "**Cross-reference Broadcom's largest customer commentary:** AVGO's next 10-Q will disclose customer concentration; any sequential acceleration in 'networking and custom silicon' confirms NVDA losing share to in-house alternatives." Do NOT recommend specific trades. Do NOT mention portfolio weights. Surface non-obvious signals and connections only.
+- Recommendations: This section is titled "Recommendations" but its CONTENT is "Signals to Monitor" — non-obvious early warning indicators, NOT trade ideas.
+
+🚨 BANNED PHRASES IN RECOMMENDATIONS:
+  - "Build long position" / "build short position"
+  - "Pair trade" / "pair-trade long X / short Y"
+  - "Sell puts" / "sell calls" / "buy puts" / "call spreads" / "LEAP"
+  - "Initiate position" / "size at X% portfolio weight"
+  - "Hedge via..." / "Position sizing..."
+  - Any options strategy
+  - Any strike price or expiration date
+  - Any portfolio percentage
+  - "Stop-loss" / "take profit"
+
+WHAT TO WRITE INSTEAD: 3-5 bullets, each describing a SPECIFIC SIGNAL to watch. Format:
+
+"**[Signal name]:** [What to watch for] in [specific source/disclosure]. [What it would tell you if you saw it]."
+
+GOOD examples:
+- "**Watch Q4 earnings call language on Apple TAC negotiations:** Listen for shift from 'maintaining' to 'evaluating' — that's the 6-month leading indicator of revenue share renegotiation per [12.4]."
+- "**Cross-reference META's next 10-Q [11] for AI capex disclosure:** If META reports >$45B 2026 capex AND announces custom silicon, GOOGL's TPU moat is mechanically narrowing."
+- "**Track DeepMind paper publication velocity on arXiv [12]:** A drop from current 18 papers/quarter to <12 would signal talent attrition before it shows in financials."
+
+BAD examples (DO NOT WRITE THESE):
+- "Build long position sized for cloud rerating catalyst" ← TRADE
+- "Pair trade long GOOGL / short PINS" ← TRADE
+- "Position for Pelosi LEAP roll catalyst" ← TRADE WITH OPTIONS
+- "Hedge via LEAP put spreads" ← TRADE WITH OPTIONS
+
+If you write a trade idea instead of a signal, the recommendation will be REJECTED. Your job is RESEARCH, not portfolio construction. Surface the non-obvious signal that would change a PM's view — let them decide what to do with it.
 - Key Questions: 3-5 numbered items. Each question must be non-obvious, cite specific data, and be answerable through channel checks/expert calls/data analysis — NOT from reading the 10-K. Only write as many as you actually have meaningful questions for — don't pad.
 
 BULLET POINTS ONLY. NO PROSE PARAGRAPHS IN SWOT SECTIONS. Each bullet starts with "-" and a **bolded** lead-in.
