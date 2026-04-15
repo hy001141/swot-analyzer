@@ -243,7 +243,9 @@ CRITICAL — USE EXACTLY THESE HEADERS (no extra text after the header):
 ## Strategic Fit Assessment
 ## TOWS Matrix
 ## Recommendations
-## Three Key Questions"""
+## Three Key Questions
+
+YOU MUST COMPLETE ALL 8 SECTIONS. The Three Key Questions section is mandatory — pace your output so you have room to write all 3 questions in detail. If you find yourself writing too much in earlier sections, tighten up. NEVER stop before Three Key Questions is fully written."""
 
 
 # ── Background worker ────────────────────────────────────────────────────
@@ -300,7 +302,7 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
                 job["text"] = ""  # reset on retry
                 with client.messages.stream(
                     model="claude-opus-4-20250514",
-                    max_tokens=16000,
+                    max_tokens=32000,
                     system=SWOT_SYSTEM_PROMPT,
                     messages=[{
                         "role": "user",
