@@ -45,6 +45,26 @@ def get_cik(ticker: str) -> str | None:
     return None
 
 
+def get_company_info_from_sec(ticker: str) -> dict:
+    """Get company name + CIK from SEC EDGAR (free, no rate limit)."""
+    result = {"cik": None, "name": None}
+    try:
+        r = requests.get(
+            "https://www.sec.gov/files/company_tickers.json",
+            headers=HEADERS, timeout=10
+        )
+        data = r.json()
+        ticker_upper = ticker.upper()
+        for entry in data.values():
+            if entry.get("ticker") == ticker_upper:
+                result["cik"] = str(entry["cik_str"]).zfill(10)
+                result["name"] = entry.get("title", "")
+                return result
+    except Exception:
+        pass
+    return result
+
+
 def get_filing_urls(cik: str, form_types: list[str] = None, count: int = 5) -> list[dict]:
     """Get recent filing URLs from EDGAR submissions API."""
     if form_types is None:

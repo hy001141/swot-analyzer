@@ -843,9 +843,22 @@ def run_full_research(ticker: str, status_callback: Callable = None) -> dict:
         except:
             pass
 
-        company_name = info.get("longName") or info.get("shortName") or ticker
+        company_name = info.get("longName") or info.get("shortName") or ""
         sector = info.get("sector", "")
         industry = info.get("industry", "")
+
+        # If yfinance didn't give us a name (rate limit), fall back to SEC EDGAR
+        if not company_name or company_name == ticker:
+            try:
+                from sec_fetcher import get_company_info_from_sec
+                sec_info = get_company_info_from_sec(ticker)
+                if sec_info.get("name"):
+                    company_name = sec_info["name"]
+            except Exception:
+                pass
+
+        if not company_name:
+            company_name = ticker
 
         results["meta"] = {
             "name": company_name,

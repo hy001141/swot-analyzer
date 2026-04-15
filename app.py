@@ -364,90 +364,9 @@ def run_analysis_worker(job_id: str, ticker: str, session_id: str):
                 else:
                     raise api_err
 
-        # Step 2b: Anti-obvious self-critique pass
-        # Opus reads its own output, identifies generic points, and rewrites them with mechanical insights
-        job["status"] = "Pressure-testing analysis for non-obvious insights..."
-        pre_critique_len = len(job["text"])
-        print(f"[CRITIQUE] {ticker}: running self-critique pass (pre-len={pre_critique_len})", flush=True)
-
-        try:
-            critique_client = anthropic.Anthropic(api_key=api_key, timeout=300.0)
-            critique_response = critique_client.messages.create(
-                model="claude-opus-4-20250514",
-                max_tokens=16000,
-                messages=[{
-                    "role": "user",
-                    "content": f"""You are the senior PM reviewing a junior analyst's SWOT on {ticker} ({meta.get('name','')}).
-
-═══════════════════════════════════════════════════════════════
-CRITICAL — ZERO TOLERANCE FOR FABRICATION
-═══════════════════════════════════════════════════════════════
-
-You are FORBIDDEN from inventing specific numbers, metrics, dates, trigger thresholds, or data points not explicitly present in the research package. This is a firing offense.
-
-- DO NOT invent statistics, thresholds, or percentages
-- DO NOT cite a source [N] for a claim that didn't come from that source
-- DO NOT invent specific dates, launch timelines, or disclosed figures
-- If a claim in the junior analyst's draft appears fabricated (made-up numbers, invented benchmarks, fake specificity), REMOVE IT and replace with a qualitative statement grounded in actual data
-
-If the data isn't in the research package, you don't have it. Use qualitative frameworks, general industry knowledge clearly marked as such, or conditional language ("if the company discloses X..."). Never invent precision.
-
-═══════════════════════════════════════════════════════════════
-
-RESEARCH PACKAGE (the analyst had access to this):
-{full_context[:80000]}
-
-JUNIOR ANALYST'S DRAFT SWOT:
-{job['text']}
-
-Your job: REWRITE this SWOT to be mechanically rigorous and non-obvious. Apply this filter to every point:
-- REJECT any point that could appear in a Goldman Sachs or Morgan Stanley research note
-- REJECT any point a first-year banking analyst could generate from the 10-K alone
-- REJECT any point that doesn't cross-reference at least 2 sources
-- REPLACE rejected points with mechanical/structural insights. Vary your angles — do NOT default to hiring/job postings as the #1 insight:
-  * Accounting policy differences vs peers (depreciation schedules, rev rec, capitalization)
-  * Language shifts in management commentary quarter-over-quarter
-  * Supply chain triangulation (infer from named suppliers/customers in competitor 10-Ks)
-  * Counter-positioning (what the target does that competitors structurally CANNOT replicate)
-  * Working capital abnormalities (inventory, DSO, deferred revenue trends)
-  * Segment mix shifts consensus hasn't caught up to
-  * Options skew / put-call ratios at specific strikes
-  * Insider transaction patterns (WHICH insiders, WHEN, not just count)
-  * Earnings beat/miss patterns (consistent beats = sandbagging)
-  * Stock-based comp as % of FCF (true owner earnings)
-  * Patent filing clusters revealing R&D priorities
-  * Hiring signals (USE THIS ONLY IF IT IS GENUINELY THE TOP INSIGHT — not by default)
-  * Regulatory filings and court cases the market is ignoring
-
-Don't force every section to OPEN with a hiring/LinkedIn/patent signal. Vary the lead bullet — for some companies that's margins, for others it's supply chain, for others it's management incentives. Let each company's real thesis drive what comes first.
-
-OUTPUT FORMAT: Return the COMPLETE rewritten SWOT with all 8 sections using these exact headers:
-## Strengths
-## Weaknesses
-## Opportunities
-## Threats
-## Strategic Fit Assessment
-## TOWS Matrix
-## Recommendations
-## Key Questions
-
-Keep strong points from the draft. Rewrite weak/generic points. Every bullet must start with "- **bolded insight:**" and cite sources [1]-[12]. Every SWOT point must cross-reference at least 2 different sources.
-
-Do NOT include any commentary about what you changed. Just output the rewritten SWOT."""
-                }]
-            )
-            critique_text = critique_response.content[0].text.strip()
-            # Only replace if the critique actually produced a valid SWOT (has all 4 sections)
-            if (critique_text.count("## ") >= 6 and
-                "## Strengths" in critique_text and
-                "## Key Questions" in critique_text):
-                job["text"] = critique_text
-                print(f"[CRITIQUE] {ticker}: successfully rewrote SWOT ({len(critique_text)} chars)", flush=True)
-            else:
-                print(f"[CRITIQUE] {ticker}: critique output invalid, keeping original", flush=True)
-        except Exception as crit_err:
-            import traceback
-            print(f"[CRITIQUE] Error: {crit_err}\n{traceback.format_exc()}", flush=True)
+        # NOTE: Self-critique pass removed. It caused visual flickering (replacing job.text mid-stream)
+        # and removed comp table / downstream sections. The main SWOT prompt's anti-fabrication
+        # rules are sufficient — we trust the first Opus pass and don't rewrite it.
 
         # Step 2c: Check if Key Questions has at least a couple numbered items — if not, regenerate
         questions_section = ""
@@ -677,7 +596,7 @@ def analyze():
         "meta": None,
         "error": None,
         "done": False,
-        "cursor": 0,  # tracks how much text the client has received
+        "cursor": 0,
     }
 
     thread = threading.Thread(target=run_analysis_worker, args=(job_id, ticker, session_id), daemon=True)
@@ -688,7 +607,7 @@ def analyze():
 
 @app.route("/api/poll/<job_id>")
 def poll(job_id):
-    """Poll for new text from a running job. Returns only new text since last poll."""
+    """Poll for new text from a running job. Returns delta from cursor."""
     job = jobs.get(job_id)
     if not job:
         return jsonify({"error": "Job not found"}), 404
