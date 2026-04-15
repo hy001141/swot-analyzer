@@ -527,57 +527,57 @@ Make 8-15 tool calls before writing the analysis. Be thorough."""
         job["text"] = final_text
         print(f"[GROUNDED] {ticker}: {tool_call_count} tool calls, {len(final_text)} chars output", flush=True)
 
-        # Step 2b: HYBRID recommendations pass — pass the full SWOT AS CONTEXT and give
-        # Opus access to tools so it can verify/extend with additional lookups.
-        # This combines the richness of the original analysis with the ability to
-        # cross-reference specific data via tool calls.
-        job["status"] = "Generating thorough non-obvious signals..."
-        print(f"[REC-PASS] {ticker}: hybrid pass — full SWOT context + tool access", flush=True)
+        # Step 2b: Dedicated recommendations pass with its own tool-use loop
+        # The main SWOT often produces obvious "watch X" recommendations. This pass
+        # forces Opus to cross-reference 2+ specific data points before writing each rec.
+        job["status"] = "Generating non-obvious signals..."
+        print(f"[REC-PASS] {ticker}: starting dedicated recommendations pass", flush=True)
 
+        # SAVE original text in case the dedicated pass fails — we restore from this
         original_text = job["text"]
-        rec_text = ""
-        rec_tool_calls = 0
 
-        rec_initial_message = f"""You wrote this SWOT analysis for {ticker} ({meta.get('name','')}):
+        rec_initial_message = f"""Generate the SIGNALS TO MONITOR section for {ticker} ({meta.get('name','')}).
 
-═══════════════════════════════════════════════════════════════
-DRAFT SWOT ANALYSIS (your prior output)
-═══════════════════════════════════════════════════════════════
+THIS IS A SEPARATE TASK FROM THE FULL SWOT. You have only ONE job: produce 3-5 NON-OBVIOUS signals that a hedge fund PM should watch.
 
-{original_text}
+⚠️ STRICT REQUIREMENTS:
 
-═══════════════════════════════════════════════════════════════
+1. Each signal MUST cross-reference AT LEAST 2 different lookup tool results. A single-source signal is automatically rejected.
 
-The Recommendations section above is too generic. Your job: REWRITE the Recommendations section so each signal is genuinely non-obvious, deeply specific to {ticker}, and connects multiple data points the SWOT mentioned.
+2. Each signal MUST pass the OBVIOUSNESS TEST: would a 2nd-year banking analyst with a Bloomberg think of this in 30 seconds? If yes, REJECT IT.
 
-You have ACCESS TO THE LOOKUP TOOLS — use them to verify or extend specific claims in your draft. For example:
-- If your draft mentioned a specific acquisition, call lookup_10k_passage to verify the disclosure language
-- If your draft named a specific competitor, call lookup_competitor_10k for SPECIFIC data on that competitor
-- If your draft mentioned a regulatory risk, call lookup_web_intelligence for recent court/regulator updates
-- If your draft mentioned segment performance, call lookup_financial_metric for the actual segment numbers from XBRL
+3. BANNED signals (these are too generic — DO NOT write them):
+   - "Watch for [segment] revenue mix shift"
+   - "Monitor Q4 guidance / capex / margins"
+   - "Track operating margin trajectory"
+   - "Watch for AI monetization commentary"
+   - "Calculate revenue per employee"
+   - "Monitor analyst estimate revisions"
+   - "Watch for buyback acceleration"
+   - "Track segment growth"
+   - Anything starting with "Watch for [obvious metric]"
 
-REQUIREMENTS FOR EACH SIGNAL:
-1. Must connect AT LEAST 2 specific details (companies, segments, programs, regulators, dates) — not generic metrics
-2. Must reference something SPECIFIC from your draft analysis above
-3. Must pass the obviousness test: would a 2nd-year analyst with a Bloomberg think of this in 30 seconds? If yes, REJECT.
-4. Cite source numbers [N] from your tool calls or from sources mentioned in the draft
-5. Format: "**[Signal title]:** [What to watch, where, the specific connection to draft details, what it would mean]"
+4. WHAT TO WRITE INSTEAD: signals that require putting two specific things together that no individual source reveals:
+   - "When [Competitor X's 10-Q discloses Y], cross-reference with [target's specific disclosure Z], because [mechanical relationship]"
+   - "Watch for [specific language change] in [specific filing] — historical pattern shows it precedes [specific event]"
+   - "If [unconventional source like patent filings, NeurIPS papers, court filings, third-party API metrics] shows [specific pattern], it signals [non-obvious derivative effect]"
 
-🚨 BANNED:
-- "Monitor Q4 guidance / segment growth / margins / capex" (generic)
-- "Watch for [obvious metric]" (generic)
-- "Build long position", "pair trade", "sell puts", "size at X%", "stop-loss" (trade actions)
-- Any signal that doesn't reference specific named details from your draft
+WORKFLOW (MANDATORY):
+1. Call lookup_competitor_10k for at least 2 named competitors with SPECIFIC queries (not generic)
+2. Call lookup_web_intelligence with at least 2 specific topics from the data sources
+3. Call lookup_10k_passage for at least 2 specific topics in the target's filing
+4. Call lookup_clinical_trials, lookup_insider_transactions, or lookup_short_interest as relevant
+5. Make AT LEAST 8 tool calls before writing
+6. THEN write 3-5 signals, each citing the specific tool results that informed it
 
-WORKFLOW:
-1. Re-read your draft above
-2. Identify the 5-8 most specific details (named acquisitions, named programs, named competitors, specific risks, specific products)
-3. Make 4-8 tool calls to deepen those specific details
-4. Write 3-5 signals, each connecting multiple specific details
+Each signal format:
+"**[Signal title]:** [What to watch for, in which specific source/disclosure]. [What it would mean — the mechanical reasoning]. [How it cross-references the data you retrieved]."
 
-Make at least 4 tool calls before writing. Output ONLY the new "## Recommendations" section — nothing else, no intro, no other sections."""
+Output ONLY the section starting with "## Recommendations" — no other content. Do not duplicate any other section of the analysis. Do not include intro text. Just "## Recommendations" followed by the 3-5 signals."""
 
         rec_messages = [{"role": "user", "content": rec_initial_message}]
+        rec_text = ""
+        rec_tool_calls = 0
 
         for rec_iteration in range(20):
             try:
@@ -625,9 +625,7 @@ Make at least 4 tool calls before writing. Output ONLY the new "## Recommendatio
                         rec_text += block.text
                 break
 
-        print(f"[REC-PASS] {ticker}: {rec_tool_calls} tool calls, {len(rec_text)} chars", flush=True)
-
-        # Replace the original recommendations with the refined ones — but ONLY if valid
+        # Replace the original recommendations with the fresh ones — but ONLY if the new ones are valid
         if rec_text and "## Recommendations" in rec_text and len(rec_text.strip()) > 200:
             # Strip the original Recommendations from the saved text
             if "## Recommendations" in original_text:
