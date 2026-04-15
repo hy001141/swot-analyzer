@@ -323,33 +323,47 @@ FORMATTING RULES:
 - TOWS Matrix: 4 bullets, one per strategy. Format: "- **SO Strategy:** [specific mechanical action citing sources]"
 - Recommendations: This section is titled "Recommendations" but its CONTENT is "Signals to Monitor" — non-obvious early warning indicators, NOT trade ideas.
 
-🚨 BANNED PHRASES IN RECOMMENDATIONS:
-  - "Build long position" / "build short position"
-  - "Pair trade" / "pair-trade long X / short Y"
-  - "Sell puts" / "sell calls" / "buy puts" / "call spreads" / "LEAP"
-  - "Initiate position" / "size at X% portfolio weight"
-  - "Hedge via..." / "Position sizing..."
-  - Any options strategy
-  - Any strike price or expiration date
-  - Any portfolio percentage
-  - "Stop-loss" / "take profit"
+🚨 BANNED PHRASES (TRADE STYLE - REJECTED):
+  - "Build long position", "build short", "pair trade", "sell puts", "LEAP", "call spreads"
+  - "Initiate position", "size at X% portfolio weight", "stop-loss", "take profit"
+  - Any options strategy, strike price, or expiration date
 
-WHAT TO WRITE INSTEAD: 3-5 bullets, each describing a SPECIFIC SIGNAL to watch. Format:
+🚨 BANNED PATTERNS (OBVIOUS SIGNALS - REJECTED):
+Any signal a Bloomberg-using analyst would think of in 30 seconds is REJECTED. These are too obvious:
+  - "Watch for cloud revenue mix shift" / "Track segment growth"
+  - "Monitor Q4 guidance" / "Watch for management commentary"
+  - "Track operating margin progression" / "Monitor capex"
+  - "Watch for M&A activity" / "Track buyback pace"
+  - "Monitor analyst estimate revisions" / "Track consensus"
+  - "Watch for AI revenue inflection" / "Monitor monetization"
+  - Anything starting with "Watch for [obvious metric] in [obvious place]"
 
-"**[Signal name]:** [What to watch for] in [specific source/disclosure]. [What it would tell you if you saw it]."
+The OBVIOUSNESS TEST: Before writing any signal, ask yourself: "Could a 2nd-year banking analyst at any megafund think of this in under 30 seconds while reading the 10-K?" If yes → DELETE IT. The signal must require cross-referencing 2+ sources OR knowledge of a specific non-obvious mechanism.
 
-GOOD examples:
-- "**Watch Q4 earnings call language on Apple TAC negotiations:** Listen for shift from 'maintaining' to 'evaluating' — that's the 6-month leading indicator of revenue share renegotiation per [12.4]."
-- "**Cross-reference META's next 10-Q [11] for AI capex disclosure:** If META reports >$45B 2026 capex AND announces custom silicon, GOOGL's TPU moat is mechanically narrowing."
-- "**Track DeepMind paper publication velocity on arXiv [12]:** A drop from current 18 papers/quarter to <12 would signal talent attrition before it shows in financials."
+WHAT MAKES A SIGNAL NON-OBVIOUS:
+  ✅ Cross-references two or more sources to spot something neither shows alone
+  ✅ Identifies a specific footnote, disclosure timing, or language pattern most readers skip
+  ✅ Uses a specific named third party (a competitor, supplier, customer, regulator) and what they will disclose
+  ✅ Identifies an accounting/reporting quirk that distorts comparability with peers
+  ✅ Spots a leading indicator from an unconventional source (patent classification codes, specific job postings, court filings, conference paper authorship)
+  ✅ Traces a derivative impact ("if X then Y because Z, even though most people only watch X")
 
-BAD examples (DO NOT WRITE THESE):
-- "Build long position sized for cloud rerating catalyst" ← TRADE
-- "Pair trade long GOOGL / short PINS" ← TRADE
-- "Position for Pelosi LEAP roll catalyst" ← TRADE WITH OPTIONS
-- "Hedge via LEAP put spreads" ← TRADE WITH OPTIONS
+GOOD examples (NON-OBVIOUS, signal-style):
+- "**Cross-reference TSMC Q4 capacity utilization disclosures [11] with Broadcom's 'large customer' segment language:** A simultaneous TSMC capacity uptick AND Broadcom segment acceleration would mechanically confirm GOOGL's silicon roadmap is on time even before earnings disclose it."
+- "**Watch for any change in 10-K Item 1A language about 'reliance on third-party AI infrastructure':** If management adds or removes that phrase next year, it directly signals whether internal silicon is replacing Nvidia procurement [7]."
+- "**Track DeepMind authorship density on NeurIPS submissions [12]:** A drop in lead-author count would suggest senior researcher attrition 6-9 months before it shows in headcount disclosures."
+- "**Monitor specific phrasing of Google Cloud 'multi-year deals' in earnings calls:** A shift from disclosing 'multi-year deals signed' to 'remaining performance obligations' (RPO) signals revenue lumpiness consensus models miss."
 
-If you write a trade idea instead of a signal, the recommendation will be REJECTED. Your job is RESEARCH, not portfolio construction. Surface the non-obvious signal that would change a PM's view — let them decide what to do with it.
+BAD examples (OBVIOUS, REJECTED):
+- "Watch for Cloud revenue mix shift" ← Every analyst tracks segment mix
+- "Monitor Q4 capex guidance" ← Standard
+- "Track operating margin trajectory" ← Standard
+- "Watch for AI monetization commentary" ← Anyone could think of this
+- "Calculate revenue per employee" ← This is freshman finance class
+
+If a signal could appear in a Goldman quarterly note, it's too obvious. The test: would a senior PM say "yeah, no shit" when reading it? If yes, DELETE IT and find something they wouldn't say that to.
+
+Surface only the 3-5 signals that are HIDDEN — the ones that require putting two sources together, or knowing a specific mechanical relationship, or watching an unconventional indicator. If you can't find 3 truly non-obvious signals, write 2. Quality over quantity.
 - Key Questions: 3-5 numbered items. Each question must be non-obvious, cite specific data, and be answerable through channel checks/expert calls/data analysis — NOT from reading the 10-K. Only write as many as you actually have meaningful questions for — don't pad.
 
 BULLET POINTS ONLY. NO PROSE PARAGRAPHS IN SWOT SECTIONS. Each bullet starts with "-" and a **bolded** lead-in.
@@ -513,9 +527,125 @@ Make 8-15 tool calls before writing the analysis. Be thorough."""
         job["text"] = final_text
         print(f"[GROUNDED] {ticker}: {tool_call_count} tool calls, {len(final_text)} chars output", flush=True)
 
-        # NOTE: Self-critique pass removed. It caused visual flickering (replacing job.text mid-stream)
-        # and removed comp table / downstream sections. The main SWOT prompt's anti-fabrication
-        # rules are sufficient — we trust the first Opus pass and don't rewrite it.
+        # Step 2b: Dedicated recommendations pass with its own tool-use loop
+        # The main SWOT often produces obvious "watch X" recommendations. This pass
+        # forces Opus to cross-reference 2+ specific data points before writing each rec.
+        job["status"] = "Generating non-obvious signals..."
+        print(f"[REC-PASS] {ticker}: starting dedicated recommendations pass", flush=True)
+
+        # Strip the existing Recommendations section from the main output
+        if "## Recommendations" in job["text"]:
+            before_rec = job["text"].split("## Recommendations", 1)[0].rstrip()
+            after_rec_section = job["text"].split("## Recommendations", 1)[1]
+            # Find next ## header to know where Recommendations ended
+            next_header = after_rec_section.find("\n## ")
+            if next_header >= 0:
+                after_rec = after_rec_section[next_header:]
+            else:
+                after_rec = ""
+            job["text"] = before_rec + after_rec
+
+        rec_initial_message = f"""Generate the SIGNALS TO MONITOR section for {ticker} ({meta.get('name','')}).
+
+THIS IS A SEPARATE TASK FROM THE FULL SWOT. You have only ONE job: produce 3-5 NON-OBVIOUS signals that a hedge fund PM should watch.
+
+⚠️ STRICT REQUIREMENTS:
+
+1. Each signal MUST cross-reference AT LEAST 2 different lookup tool results. A single-source signal is automatically rejected.
+
+2. Each signal MUST pass the OBVIOUSNESS TEST: would a 2nd-year banking analyst with a Bloomberg think of this in 30 seconds? If yes, REJECT IT.
+
+3. BANNED signals (these are too generic — DO NOT write them):
+   - "Watch for [segment] revenue mix shift"
+   - "Monitor Q4 guidance / capex / margins"
+   - "Track operating margin trajectory"
+   - "Watch for AI monetization commentary"
+   - "Calculate revenue per employee"
+   - "Monitor analyst estimate revisions"
+   - "Watch for buyback acceleration"
+   - "Track segment growth"
+   - Anything starting with "Watch for [obvious metric]"
+
+4. WHAT TO WRITE INSTEAD: signals that require putting two specific things together that no individual source reveals:
+   - "When [Competitor X's 10-Q discloses Y], cross-reference with [target's specific disclosure Z], because [mechanical relationship]"
+   - "Watch for [specific language change] in [specific filing] — historical pattern shows it precedes [specific event]"
+   - "If [unconventional source like patent filings, NeurIPS papers, court filings, third-party API metrics] shows [specific pattern], it signals [non-obvious derivative effect]"
+
+WORKFLOW (MANDATORY):
+1. Call lookup_competitor_10k for at least 2 named competitors with SPECIFIC queries (not generic)
+2. Call lookup_web_intelligence with at least 2 specific topics from the data sources
+3. Call lookup_10k_passage for at least 2 specific topics in the target's filing
+4. Call lookup_clinical_trials, lookup_insider_transactions, or lookup_short_interest as relevant
+5. Make AT LEAST 8 tool calls before writing
+6. THEN write 3-5 signals, each citing the specific tool results that informed it
+
+Each signal format:
+"**[Signal title]:** [What to watch for, in which specific source/disclosure]. [What it would mean — the mechanical reasoning]. [How it cross-references the data you retrieved]."
+
+Output ONLY the section starting with "## Recommendations" — no other content. Do not duplicate any other section of the analysis. Do not include intro text. Just "## Recommendations" followed by the 3-5 signals."""
+
+        rec_messages = [{"role": "user", "content": rec_initial_message}]
+        rec_text = ""
+        rec_tool_calls = 0
+
+        for rec_iteration in range(20):
+            try:
+                rec_response = client.messages.create(
+                    model="claude-opus-4-20250514",
+                    max_tokens=8000,
+                    system=SWOT_SYSTEM_PROMPT,
+                    tools=TOOL_DEFINITIONS,
+                    messages=rec_messages,
+                )
+            except Exception as rec_err:
+                print(f"[REC-PASS] Error: {rec_err}", flush=True)
+                break
+
+            stop_reason = rec_response.stop_reason
+
+            assistant_blocks = []
+            for block in rec_response.content:
+                assistant_blocks.append(block.model_dump() if hasattr(block, 'model_dump') else block.__dict__)
+
+            rec_messages.append({"role": "assistant", "content": [
+                {k: v for k, v in b.items() if k in ("type", "text", "id", "name", "input")}
+                for b in assistant_blocks
+            ]})
+
+            if stop_reason == "tool_use":
+                tool_results = []
+                for block in rec_response.content:
+                    if hasattr(block, 'type') and block.type == "tool_use":
+                        rec_tool_calls += 1
+                        job["status"] = f"Cross-referencing for signals (call #{rec_tool_calls})... {block.name}"
+                        print(f"[REC-TOOL] {ticker}: {block.name}({block.input})", flush=True)
+                        result = execute_tool(block.name, block.input or {}, lookup)
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": block.id,
+                            "content": result,
+                        })
+                rec_messages.append({"role": "user", "content": tool_results})
+                continue
+
+            if stop_reason in ("end_turn", "stop_sequence", "max_tokens"):
+                for block in rec_response.content:
+                    if hasattr(block, 'type') and block.type == "text":
+                        rec_text += block.text
+                break
+
+        # Insert the fresh recommendations into job["text"]
+        # Find where Recommendations should go (between Reverse DCF/TOWS and Key Questions, OR at end before Key Questions)
+        if rec_text and "## Recommendations" in rec_text:
+            # Insert before Key Questions if present, else append
+            if "## Key Questions" in job["text"]:
+                parts = job["text"].split("## Key Questions", 1)
+                job["text"] = parts[0].rstrip() + "\n\n" + rec_text.strip() + "\n\n## Key Questions" + parts[1]
+            else:
+                job["text"] = job["text"].rstrip() + "\n\n" + rec_text.strip()
+            print(f"[REC-PASS] {ticker}: {rec_tool_calls} tool calls, {len(rec_text)} chars added", flush=True)
+        else:
+            print(f"[REC-PASS] {ticker}: failed to generate, keeping original recs", flush=True)
 
         # Step 2c: Check if Key Questions has at least a couple numbered items — if not, regenerate
         questions_section = ""
@@ -687,24 +817,40 @@ VOICE:
 - Talk like a person who's already decided what they think, not a textbook explaining options.
 - One angle per response, not five.
 
-FACTS vs INTERPRETATION:
-- Specific numbers/dates/IDs → only if you can quote them directly from the research package above. If you don't have a verified number, say "don't have that exact number" and move on.
-- Interpretation, risk calls, judgment → expected, but ONLY if grounded in actual data points. Don't make sweeping qualitative claims like "structurally behind X" or "losing share" without specific evidence in the research.
+FACTS vs INTERPRETATION — DEFEND YOUR REASONING, DON'T APOLOGIZE FOR IT:
 
-🚨 ZERO-FABRICATION RULES 🚨
+There are TWO types of claims, and they need different treatment:
 
-1. Before making ANY factual claim about competitive position, market share, or scale comparisons:
-   - Search the research package for the specific data point
-   - If you can't find it, say "I'd need to verify that against [specific data]" — DON'T just assert
-   - Words like "structurally behind", "market leader", "losing share" require evidence — not vibes
+**Type 1 — Specific factual claims** (numbers, dates, percentages, NCT IDs, dollar amounts):
+- Only state these if you can quote them directly from the research package
+- If asked "where did you get this?" and you can quote a source, point to it confidently
+- If you actually invented a specific number, own it — say "you're right, I don't have that exact figure" once and move on
 
-2. Do not do percentage math on raw numbers without verifying units. If shares are listed as "12,102,000,000" don't decide that's wrong and add a decimal — that IS twelve billion.
+**Type 2 — Analytical inferences** (thesis claims, risk assessments, derivative conclusions):
+- These are the VALUE you provide. A senior analyst earns their salary on inference, not data retrieval.
+- When you make an analytical inference and the user asks "where did you get this?", they are usually NOT accusing you of fabrication — they want to understand your reasoning chain
+- DEFEND the reasoning. Walk through the logic. "Source [7] discloses X. Source [1] confirms Y. Combined, this implies Z because [mechanism]." That's the response.
+- DO NOT immediately retreat with "you're right, I overstated that" unless you ACTUALLY made up a specific number
+- "I was making an analytical inference from X and Y" is a confident answer — not an apology
 
-3. If you previously gave a number in this conversation that you can't verify, OWN IT — say "I can't verify that figure, here's what I CAN see." Don't invent unit conversion errors to retrofit your previous claim.
+⚠️ STOP DOING THIS:
+- "I should have been more precise"
+- "That was me connecting dots beyond what the data states"
+- "I overstated the specificity"
+- "Wrong inference on my part"
 
-4. The phrase "wrong inference on my part" should be RARE. Don't make claims you'll have to retract — verify first, claim second. A senior analyst doesn't constantly self-correct; they get it right the first time by being careful about what they actually know.
+Unless you ACTUALLY fabricated a specific number, those phrases are wrong and make you sound junior. A senior PM ASKING for your reasoning is not telling you you're wrong. Defend your inference.
 
-5. If a user asks about something not in the research, the answer is "I don't have that data" — NOT a guess dressed up as analysis.
+START DOING THIS:
+- "Yes — I'm inferring this from [specific source A] combined with [specific source B]. The mechanism is [X]."
+- "That's an interpretation of the regulatory disclosures in [7] read alongside the app store coverage in [1]. The connection is [reasoning]."
+- "Fair point — I'm extrapolating from the data, not quoting it. The base case is [verified] and my inference adds [reasoning]."
+
+The only time to actually retract is when you literally invented a specific quantitative claim (like "65% efficacy" or "$3.5B impact") that isn't in the research. For analytical inferences, defend them.
+
+Other rules:
+- Don't do percentage math on raw numbers without verifying units. "12,102,000,000" IS twelve billion — don't add a decimal.
+- If a user asks about something not in the research and you don't have a reasonable inference, say "don't have that data" — not a fake guess.
 
 WHAT TO AVOID:
 - Bullet point lists (use prose)
